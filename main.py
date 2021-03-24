@@ -45,15 +45,19 @@ def load_flags():
     parser.add_argument('--num_epochs', '-n', type=int, default=10, required=False, help="Number of epochs")
     parser.add_argument('--batch_size', '-b', type=int, default=64, required=False, help='Batch size')
     parser.add_argument('--num_gpus', '-g', type=int, default=1, required=False, help='Number of gpus used for training')
-    parser.add_argument('--gpu_ids', '-i', type=int, nargs='+', required=False, help='IDs of used GPUs for training')
-    parser.add_argument('--model', '-m', type=str, default='resnet50', required=False, help='Model for training')
+    parser.add_argument(
+        '--gpu_ids', '-i', type=int, nargs='+', required=False,
+        help='IDs of used GPUs for training. If not given, range(num_gpus - 1) is used.'
+                        )
+    parser.add_argument('--model', '-m', type=str, default='resnet50', required=False, help='Model used for training')
     parser.add_argument('--use_fp16', '-f', action='store_true', required=False, help='Use half precision')
     parser.add_argument(
         '--img_folder', '-imf', type=str, required=False,
-        help='Destination of training images. If not given, random data will be used'
+        help='Destination of training images. If not given, random data will be used.'
                         )
     parser.add_argument(
-        '--num_workers', '-nw', type=int, default=-1, required=False, help='Number of workers for the dataloader'
+        '--num_workers', '-nw', type=int, default=-1, required=False,
+        help='Number of workers for the dataloader. If not given num_gpus is used.'
                         )
 
     _args = parser.parse_args()
@@ -88,6 +92,7 @@ def make_info_text(_precision):
             cpu_name = line.split(':')[1].strip()
 
     _info_text += f'CPU: {cpu_name}\n'\
+                  f'Used model: {args.model}\n'\
                   f'Batch size: {args.batch_size}\n'\
                   f'Precision: {_precision}\n'
 

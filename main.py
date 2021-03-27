@@ -11,6 +11,7 @@ import argparse
 import numpy as np
 import subprocess
 
+torch.backends.cudnn.benchmark = True
 
 class RandomDataset(torch.utils.data.Dataset):
     """Creates Random images"""

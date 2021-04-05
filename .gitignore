@@ -1,1 +1,9 @@
+!.gitignore
 *.txt
+!requirements.txt
+.directory
+*.png
+test.py
+.directory
+/model_checkpoints/
+/__pycache__/

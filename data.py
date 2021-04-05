@@ -81,7 +81,7 @@ def load_data(rank, args):
     else:
         # Random images
         image_size = (3, 224, 224)
-        num_images = 400000
+        num_images = 100000
         num_classes = 1000
         img_dataset = RandomDataset(image_size, num_images, num_classes, transform=transforms)
     if args.num_workers == -1:

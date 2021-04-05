@@ -11,15 +11,55 @@ import model_utils
 import utils
 import flags
 
+torch.backends.cudnn.benchmark = True
 
 def run(rank, img_data, gpu_info, args, start_time):
     """Run training/evaluation on given gpu id (rank).
     """
+<<<<<<< HEAD
     total_step = len(img_data)
     multi_gpu_model = model_utils.MultiGpuModel(rank, args.model, args.num_gpus, args.precision, args.parallel)
     model = multi_gpu_model.model
     if args.eval:
         model.eval()
+=======
+    with open(f'{args.num_gpus}_{str(torch.cuda.get_device_name(0))}_{args.batch_size}.txt', 'w') as protocol:
+        protocol.write(_info_text)
+        for key in _img_per_sec_dict:
+            protocol.write(f'Epoch: {key[0]}, Step: {key [1]}, Images per second: {_img_per_sec_dict[key]}\n')
+
+        _mean_img_per_sec = np.array(list(_img_per_sec_dict.values())).mean()
+        protocol.write(f'\nMean images per second: {_mean_img_per_sec}\n')
+
+        _now = datetime.datetime.now()
+        _end_time = _now.strftime('%Y/%m/%d %H:%M:%S')
+        protocol.write(f'Benchmark end : {_end_time}\n')
+        return _mean_img_per_sec
+
+
+def load_data():
+    """Loads the training data."""
+    transforms = torchvision.transforms.Compose([
+        torchvision.transforms.Resize(256),
+        torchvision.transforms.CenterCrop(224),
+        torchvision.transforms.ToTensor(),
+        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    # args.img_folder = '~/gpu_benchmark/fruits-360/Training'
+
+    if args.img_folder:
+        # Real data
+        img_dataset = torchvision.datasets.ImageFolder(root=args.img_folder, transform=transforms)
+    else:
+        # Random images
+        image_size = (3, 224, 224)
+        num_images = 100000
+        num_classes = 1000
+        img_dataset = RandomDataset(image_size, num_images, num_classes, transform=transforms)
+
+    if args.num_workers == -1:
+        num_workers = args.num_gpus
+>>>>>>> 3d9bebadedd481fcff6a2ed65c0013f6d16c5269
     else:
         model.train()
     criterion = torch.nn.CrossEntropyLoss()

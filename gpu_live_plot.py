@@ -66,16 +66,11 @@ def make_live_plot_gpu_temp_and_fan_speed(num_gpus, refresh_interval):
     plt.show()
 
 
-
-
-
-
 def main():
 
     parser = argparse.ArgumentParser(
         description='GPU temp and fan speed live plot', formatter_class=argparse.ArgumentDefaultsHelpFormatter
                                      )
-
     parser.add_argument(
         '-ng', '--num_gpus', type=int, default=1, required=False,
         help='Number of gpus.'

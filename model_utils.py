@@ -3,39 +3,78 @@
 import torch
 import torchvision
 from pathlib import Path
-from torch.nn.parallel import DistributedDataParallel as DDP
 
 CHECKPOINT_PATH = Path.cwd() / 'model_checkpoints'
 
-class MultiGpuModel(object):
+
+class MultiGpuModel(torch.nn.Module):
     """Initialises model for multi gpu calculation.
     """
-    def __init__(self, rank, model_name, num_gpus, precision, parallel_mode):
-        """Loads model from torchvision to self.model and sets attributes.
+    def __init__(self, rank, model_name, num_gpus, precision, parallel, eval_mode):
+        """Initialises the model and the training parameters.
         """
+        super(MultiGpuModel, self).__init__()
+        self.rank = rank
         self.model_name = model_name
         self.num_gpus = num_gpus
         self.precision = precision
+        self.parallel = parallel
+        self.eval_mode = eval_mode
+
+        self.model = self.get_model_from_torchvision()
+        self.model = self.set_train_or_eval_mode(self.eval_mode)
+        self.model = self.set_precision_mode(self.precision)
+        self.model.cuda()#.to(memory_format=torch.contiguous_format)
+        self.model = self.set_distribution_mode(self.parallel)
+
+    def get_model_from_torchvision(self):
+        """Loads model from torchvision to self.model and sets attributes.
+        """
         try:
-            self.model = getattr(torchvision.models, self.model_name)(pretrained=False)
+            model = getattr(torchvision.models, self.model_name)(pretrained=False)
         except AttributeError:
             sys.exit(f'There is no model with the name {self.model_name} in torchvision.\n'
                      f'The following models are available for benchmark:\n'
                      f'{MultiGpuModel.get_available_models()}')
+        return model
 
-        #self.model = getattr(self.model, self.precision)()
-        if self.precision == 'half':
-            self.model = network_to_half(self.model)
-        self.model = self.model.train()
-        self.model.cuda().to(memory_format=torch.contiguous_format)
-
-        if parallel_mode:
-            self.model = torch.nn.parallel.DataParallel(self.model, device_ids=list(range(num_gpus)), dim=0)
+    def set_train_or_eval_mode(self, eval_mode):
+        """Set the training / evaluation mode for the model.
+        If the argument eval_mode is True, the model will get optimized for evaluation. If False for training.
+        """
+        if eval_mode:
+            model = self.model.eval()
         else:
-            self.model = DDP(self.model, device_ids=[rank])
+            model = self.model.train()
+        return model
+
+    def set_precision_mode(self, precision):
+        """Set the precision of the model to half or float precision depending on given string.
+        """
+        #self.model = getattr(self.model, self.precision)()
+        if precision == 'half':
+            model = network_to_half(self.model)
+        else:
+            model = self.model
+        return model
+
+    def set_distribution_mode(self, parallel):
+        """Set the distribution mode for multi gpu training / evaluation.
+        If argument parallel is True, DataParallel is used. If False DistributedDataParallel.
+        """
+        if parallel:
+            model = torch.nn.parallel.DataParallel(self.model, device_ids=list(range(num_gpus)), dim=0)
+        else:
+            model = torch.nn.parallel.DistributedDataParallel(self.model, device_ids=[self.rank])
+        return model
+
+    def forward(self, data):
+        """Connects self.model with the module.
+        """
+        return self.model(data)
 
     def save_model(self, optimizer, epoch):
-        """Saves model state to file.
+        """Saves model checkpoint to file.
         """
         if not CHECKPOINT_PATH.is_dir():
             CHECKPOINT_PATH.mkdir()
@@ -61,7 +100,7 @@ class MultiGpuModel(object):
         return self.model, optimizer
 
     @staticmethod
-    def check_pretrained_model_epoch(model_name):
+    def check_saved_checkpoint_epoch(model_name):
         """Returns maximum available epoch to load pretrained model state.
         """
         epoch_list = []

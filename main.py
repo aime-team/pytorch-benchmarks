@@ -16,22 +16,17 @@ def run(rank, img_data, gpu_info, args, start_time):
     """Run training/evaluation on given gpu id (rank).
     """
     total_step = len(img_data)
-    multi_gpu_model = model_utils.MultiGpuModel(rank, args.model, args.num_gpus, args.precision, args.parallel)
-    model = multi_gpu_model.model
-    if args.eval:
-        model.eval()
-    else:
-        model.train()
+    model = model_utils.MultiGpuModel(rank, args.model, args.num_gpus, args.precision, args.parallel, args.eval)
     criterion = torch.nn.CrossEntropyLoss()
     criterion.cuda()
-    optimizer = torch.optim.SGD(model.parameters(), lr=args.learning_rate, momentum=0.9)
+    optimizer = torch.optim.SGD(model.model.parameters(), lr=args.learning_rate, momentum=0.9)
     start = time.time()
     img_per_sec_dict = {}
     gpu_info_dict = {}
     gpu_temp_list = []
 
     if args.start_epoch == 0:
-        args.start_epoch = multi_gpu_model.check_pretrained_model_epoch(args.model)
+        args.start_epoch = model.check_saved_checkpoint_epoch(args.model)
     elif args.start_epoch != 1:
         args.start_epoch += 1
 
@@ -43,7 +38,7 @@ def run(rank, img_data, gpu_info, args, start_time):
             map_location = {'cuda:0': f'cuda:{rank}'}
             if not args.parallel:
                 dist.barrier()
-            model, optimizer = multi_gpu_model.load_model(optimizer, epoch-1, map_location)
+            model, optimizer = model.load_model(optimizer, epoch-1, map_location)
         correct_predictions = 0
         total_predictions = 0
         for step, (_data, _label) in enumerate(img_data):
@@ -67,12 +62,10 @@ def run(rank, img_data, gpu_info, args, start_time):
                     start, epoch, step, total_step, correct_predictions, total_predictions, loss, args, gpu_info,
                     rank, img_per_sec_dict, gpu_temp_list, gpu_info_dict
                                                           )
-                #if args.temp_test:
-                #    utils.make_temp_test
             except KeyboardInterrupt:
                 utils.cancel_procedure(epoch, step, args, img_per_sec_dict, gpu_info_dict, gpu_temp_list, start_time)
         if rank == 0:
-            multi_gpu_model.save_model(optimizer, epoch)
+            model.save_model(optimizer, epoch)
 
     print(utils.make_protocol(img_per_sec_dict, gpu_info_dict, gpu_temp_list, args, start_time))
     if not args.parallel:

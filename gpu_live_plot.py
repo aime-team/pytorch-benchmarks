@@ -15,8 +15,7 @@ def get_temperature_and_update_axes(
     for gpu_id in range(num_gpus):
 
         handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu_id)
-        gpu_temp = nvidia_smi.nvmlDeviceGetUtilizationRates(handle).gpu
-        #gpu_temp = nvidia_smi.nvmlDeviceGetTemperature(handle, 0)
+        gpu_temp = nvidia_smi.nvmlDeviceGetTemperature(handle, 0)
         fan_speed = nvidia_smi.nvmlDeviceGetFanSpeed(handle)
         now = time.time()
         time_list.append(now - start)

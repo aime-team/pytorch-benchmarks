@@ -1,5 +1,5 @@
 import argparse
-import model_utils
+import models.model_utils as model_utils
 
 
 def load_flags():
@@ -16,7 +16,7 @@ def load_flags():
         '-n', '--num_epochs', type=int, default=10, required=False, help='Number of total epochs. '
                         )
     parser.add_argument(
-        '-b', '--batch_size', type=int, default=48, required=False, help='Batch size. Default: 64'
+        '-b', '--batch_size', type=int, default=64, required=False, help='Batch size. Default: 64'
                         )
     parser.add_argument(
         '-g', '--num_gpus', type=int, default=1, required=False, help='Number of gpus used for training'
@@ -44,7 +44,7 @@ def load_flags():
         help='Number of workers for the dataloader. If not given num_gpus is used.'
                         )
     parser.add_argument(
-        '-sd', '--split_data', type=float, default=-1, required=False,
+        '-sd', '--split_data', type=float, default=1, required=False,
         help='Splits dataset in training and evaluation dataset with given ratio.'
                         )
     parser.add_argument(
@@ -80,6 +80,15 @@ def load_flags():
         '-lp', '--live_plot', action='store_true', required=False,
         help='Show live plot of gpu temperature and fan speed.'
                         )
+    parser.add_argument(
+        '-pl', '--pred_pic_label', type=str, required=False,
+        help='Predict label of given picture with pretrained model.'
+                        )
+    parser.add_argument(
+        '-in', '--imagenet', type=str, required=False,
+        help='Use imagenet for training/evaluation from given path.'
+                        )
+
 
     args = parser.parse_args()
     if args.eval and args.start_epoch == 1:
@@ -94,5 +103,7 @@ def load_flags():
         args.precision = 'float'
     if args.parallel:
         args.batch_size *= args.num_gpus
+    if not 0 < args.split_data <= 1:
+        sys.exit('--split_data has to be between 0 and 1')
     return args
 

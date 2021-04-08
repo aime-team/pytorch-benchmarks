@@ -4,6 +4,7 @@ import torch
 from random import Random
 import torchvision
 import numpy as np
+from pathlib import Path
 
 
 class RandomDataset(torch.utils.data.Dataset):
@@ -72,36 +73,60 @@ def load_data(rank, args):
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                                                  ])
-    # args.img_folder = '~/gpu_benchmark/fruits-360/Training'
-
-    if args.img_folder:
-        # Real data
-        img_dataset = torchvision.datasets.ImageFolder(root=args.img_folder, transform=transforms)
-
-    else:
-        # Random images
-        image_size = (3, 224, 224)
-        num_images = 100000
-        num_classes = 1000
-        img_dataset = RandomDataset(image_size, num_images, num_classes, transform=transforms)
     if args.num_workers == -1:
         num_workers = args.num_gpus
     else:
         num_workers = args.num_workers
-    val_data = ''
-    if args.split_data != -1:
-        torch.manual_seed(args.set_seed)
-        ratio_map = [round(args.split_data * len(img_dataset)), round((1 - args.split_data) * len(img_dataset))]
-        img_dataset, val_dataset = torch.utils.data.random_split(img_dataset, ratio_map)
-        val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, num_replicas=args.num_gpus, rank=rank)
-        val_data = torch.utils.data.DataLoader(
-            dataset=val_dataset,
-            batch_size=args.batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=True,
-            sampler=val_sampler
-                                                )
+
+    if args.imagenet:
+            img_dataset = torchvision.datasets.ImageNet(root=args.imagenet, split='train', transform=transforms)
+            #val_dataset = torchvision.datasets.ImageNet(root=args.imagenet, split='val', download=False)
+            #val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, num_replicas=args.num_gpus, rank=rank)
+            """val_data = torch.utils.data.DataLoader(
+                dataset=val_dataset,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=True,
+                sampler=val_sampler
+                                                    )"""
+            val_data = ''
+            lookup_file = Path.cwd() / 'data' / 'imagenet_label_lookup.npy'
+            label_dict = np.load(lookup_file, allow_pickle='TRUE').item()
+            img_data_name = 'ImageNet'
+
+    else:
+        # args.img_folder = '~/gpu_benchmark/fruits-360/Training'
+        if args.img_folder:
+            # Real data
+            img_dataset = torchvision.datasets.ImageFolder(root=args.img_folder, transform=transforms)
+            label_dict = img_dataset.classes
+            img_data_name_list = args.img_folder.strip('/').split('/')
+            img_data_name = f'{img_data_name_list[-1]}/{img_data_name_list[-2]}'
+        else:
+            # Random images
+            image_size = (3, 224, 224)
+            num_images = 100000
+            num_classes = 1000
+            img_dataset = RandomDataset(image_size, num_images, num_classes, transform=transforms)
+            label_dict = [i for i in range(num_classes)]
+            img_data_name = 'RandomData'
+
+        if args.split_data != 1:
+            torch.manual_seed(args.set_seed)
+            ratio_map = [round(args.split_data * len(img_dataset)), round((1 - args.split_data) * len(img_dataset))]
+            img_dataset, val_dataset = torch.utils.data.random_split(img_dataset, ratio_map)
+            val_sampler = torch.utils.data.distributed.DistributedSampler(val_dataset, num_replicas=args.num_gpus, rank=rank)
+            val_data = torch.utils.data.DataLoader(
+                dataset=val_dataset,
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=num_workers,
+                pin_memory=True,
+                sampler=val_sampler
+                                                    )
+        else:
+            val_data = ''
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(img_dataset, num_replicas=args.num_gpus, rank=rank)
     img_data = torch.utils.data.DataLoader(
@@ -112,4 +137,11 @@ def load_data(rank, args):
                                         pin_memory=True,
                                         sampler=train_sampler
                                             )
-    return img_data, val_data
+    return img_data, val_data, label_dict, img_data_name
+
+
+def get_imagenet_label_from_idx(idx):
+    lookup_file = Path.cwd() / 'data' / 'imagenet_label_lookup.npy'
+    lookup_dict = np.load(lookup_file, allow_pickle='TRUE').item()
+    return lookup_dict[idx]
+

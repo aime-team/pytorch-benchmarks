@@ -85,13 +85,14 @@ except ModuleNotFoundError:
 
 
 def run_live_plot_thread(num_gpus, refresh_interval=500):
-    """ Runs the python-script gpu_liveplot.py via subprocess.
+    """ Runs the python-script gpu_live_plot.py via subprocess.
     """
     thread = threading.Thread(
         target=subprocess.run, args=(
             ['python3', 'gpu_live_plot.py', '--num_gpus', str(num_gpus), '--refresh_interval', str(refresh_interval)],
                                      )
                               )
+    thread.daemon = True
     thread.start()
     return thread
 
@@ -136,8 +137,8 @@ def make_info_text(args, start_time):
 
 
 def make_protocol(img_per_sec_dict, gpu_info_dict, gpu_temp_list, args, start_time):
-    """Writes benchmark results in a textfile and calculates the mean.
-    Takes the images_per_sec_dict and the infotext as arguments. Returns the mean of images per sec.
+    """Writes benchmark results in a text file and calculates the mean.
+    Takes the images_per_sec_dict and the info text as arguments. Returns the mean of images per sec.
     """
     info_text = make_info_text(args, start_time)
     if len(img_per_sec_dict):
@@ -181,7 +182,7 @@ def cancel_procedure(epoch, step, args, img_per_sec_dict, gpu_info_dict, gpu_tem
     if epoch == args.start_epoch and step < args.warm_up_steps:
         if not args.parallel:
             dist.destroy_process_group()
-        sys.exit('Cancelled in warm up stage')
+        sys.exit('\nCancelled in warm up stage')
     else:
         if len(img_per_sec_dict):
             print(*make_protocol(img_per_sec_dict, gpu_info_dict, gpu_temp_list, args, start_time))
@@ -228,16 +229,17 @@ def make_benchmark_calculations(
                     gpu_info_dict[(epoch, step + 1)] = gpu_info_str
             if step > args.warm_up_steps:
                 img_per_sec_dict[(epoch, step + 1)] = img_per_sec
-    if (step + 1) == total_step:
-        try:
-            loss_item = loss.item()
-        except AttributeError:
-            loss_item = 0.0
-        print(
-            f'Epoch [{epoch} / {args.start_epoch + args.num_epochs - 1}], '
-            f'Step [{(step + 1)} / {total_step}], Loss: {loss_item:.4f}\n\n'
-              )
-        start = time.time()
+    if rank == 0:
+        if (step + 1) == total_step:
+            try:
+                loss_item = loss.item()
+            except AttributeError:
+                loss_item = 0.0
+            print(
+                f'Epoch [{epoch} / {args.start_epoch + args.num_epochs - 1}], '
+                f'Step [{(step + 1)} / {total_step}], Loss: {loss_item:.4f}\n\n'
+                  )
+            start = time.time()
     return start
 
 
@@ -256,3 +258,7 @@ def average_gradients(model, num_gpus):
         dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
         param.grad.data /= num_gpus
 
+
+def predict_picture_label(picture_file_destination):
+    """Returns string with predicted label for given picture destination string.
+    """

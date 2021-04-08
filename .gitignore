@@ -7,3 +7,6 @@ test.py
 .directory
 /model_checkpoints/
 /__pycache__/
+/data/__pycache__/
+/utils/__pycache__/
+/models/__pycache__/

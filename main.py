@@ -6,13 +6,13 @@ import time
 import os
 import sys
 import torch.distributed as dist
-import data
-import model_utils
-import utils
-import flags
+import data.data as data
+import models.model_utils as model_utils
+import utils.utils as utils
+import utils.flags as flags
 
 
-def run(rank, img_data, gpu_info, args, start_time):
+def run(rank, img_data, data_name, gpu_info, args, start_time):
     """Run training/evaluation on given gpu id (rank).
     """
     total_step = len(img_data)
@@ -26,9 +26,9 @@ def run(rank, img_data, gpu_info, args, start_time):
     gpu_temp_list = []
 
     if args.start_epoch == 0:
-        args.start_epoch = model.check_saved_checkpoint_epoch(args.model)
-    elif args.start_epoch != 1:
-        args.start_epoch += 1
+        args.start_epoch = model.check_saved_checkpoint_epoch(args.model, data_name) + 1
+    #elif args.start_epoch != 1:
+    #    args.start_epoch += 1
 
     for epoch in range(args.start_epoch, args.start_epoch + args.num_epochs):
 
@@ -38,36 +38,39 @@ def run(rank, img_data, gpu_info, args, start_time):
             map_location = {'cuda:0': f'cuda:{rank}'}
             if not args.parallel:
                 dist.barrier()
-            model, optimizer = model.load_model(optimizer, epoch-1, map_location)
+            if not args.eval:
+                model.model, optimizer = model.load_model(optimizer, epoch-1, map_location)
         correct_predictions = 0
         total_predictions = 0
-        for step, (_data, _label) in enumerate(img_data):
+        for step, (data, label) in enumerate(img_data):
             try:
-                _data, _label = _data.cuda(non_blocking=True), _label.cuda(non_blocking=True)
+                data, label = data.cuda(non_blocking=True), label.cuda(non_blocking=True)
                 if not args.eval:
                     optimizer.zero_grad()
-                    outputs = model(_data)
-                    loss = criterion(outputs, _label)
+                    outputs = model(data)
+                    loss = criterion(outputs, label)
                     loss.backward()
                     #average_gradients(model, args.num_gpus)
                     optimizer.step()
                 else:
                     with torch.no_grad():
-                        outputs = model(_data)
+                        outputs = model(data)
                         _, pred = torch.max(outputs.data, 1)
-                        total_predictions += _label.size(0)
-                        correct_predictions += (pred == _label).sum().item()
+                        total_predictions += label.size(0)
+                        correct_predictions += (pred == label).sum().item()
                         loss = 0.0
                 start = utils.make_benchmark_calculations(
                     start, epoch, step, total_step, correct_predictions, total_predictions, loss, args, gpu_info,
                     rank, img_per_sec_dict, gpu_temp_list, gpu_info_dict
                                                           )
             except KeyboardInterrupt:
-                utils.cancel_procedure(epoch, step, args, img_per_sec_dict, gpu_info_dict, gpu_temp_list, start_time)
+                if rank == 0:
+                    utils.cancel_procedure(epoch, step, args, img_per_sec_dict, gpu_info_dict, gpu_temp_list, start_time)
         if rank == 0:
-            model.save_model(optimizer, epoch)
+            if not args.eval:
+                model.save_model(optimizer, epoch, data_name)
 
-    print(utils.make_protocol(img_per_sec_dict, gpu_info_dict, gpu_temp_list, args, start_time))
+    print(*utils.make_protocol(img_per_sec_dict, gpu_info_dict, gpu_temp_list, args, start_time))
     if not args.parallel:
         dist.destroy_process_group()
 
@@ -85,17 +88,17 @@ def start_training(rank, args):
             gpu_info = utils.GpuInfo(args.num_gpus)
         except AttributeError:
             gpu_info = None
-            print('You need to install the package nvidia-ml-py3 (f.i with "pip3 install nvidia-ml-py3 '
+            print('You need to install the package nvidia-ml-py3 (f.i with "pip3 install nvidia-ml-py3") '
                   'to show gpu temperature and fan speed.\n')
     else:
         gpu_info = None
 
     torch.cuda.set_device(rank)
     if args.eval:
-        data_loader = data.load_data(rank, args)[1]
+        _, img_data, label_dict, data_name = data.load_data(rank, args)
     else:
-        data_loader = data.load_data(rank, args)[0]
-    run(rank, data_loader, gpu_info, args, start_time)
+        img_data, _, label_dict, data_name = data.load_data(rank, args)
+    run(rank, img_data, data_name, gpu_info, args, start_time)
 
 
 def main():
@@ -104,9 +107,10 @@ def main():
     torch.backends.cudnn.benchmark = True
 
     args = flags.load_flags()
+    if args.pred_pic_label:
+        utils.predict_picture_label(args.pred_pic_label)
     if args.live_plot:
         _ = utils.run_live_plot_thread(args.num_gpus, args.refresh_interval)
-
     try:
         if args.parallel:
             start_training(0, args)

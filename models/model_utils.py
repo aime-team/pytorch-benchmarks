@@ -73,12 +73,12 @@ class MultiGpuModel(torch.nn.Module):
         """
         return self.model(data)
 
-    def save_model(self, optimizer, epoch):
+    def save_model(self, optimizer, epoch, data_name):
         """Saves model checkpoint to file.
         """
         if not CHECKPOINT_PATH.is_dir():
             CHECKPOINT_PATH.mkdir()
-        file = CHECKPOINT_PATH / f'{self.model_name}_epoch_{epoch}.pt'
+        file = CHECKPOINT_PATH / f'{self.model_name}_epoch_{epoch}_{data_name}.pt'
         if not file.is_file():
             file.touch()
         torch.save(
@@ -100,11 +100,11 @@ class MultiGpuModel(torch.nn.Module):
         return self.model, optimizer
 
     @staticmethod
-    def check_saved_checkpoint_epoch(model_name):
+    def check_saved_checkpoint_epoch(model_name, data_name):
         """Returns maximum available epoch to load pretrained model state.
         """
         epoch_list = []
-        for filename in CHECKPOINT_PATH.rglob(f'{model_name}_epoch_*.pt'):
+        for filename in CHECKPOINT_PATH.rglob(f'{model_name}_epoch_*_{data_name}.pt'):
             epoch = filename.name.split('_')[2].strip('.pt')
             epoch_list.append(int(epoch))
         return max(epoch_list)

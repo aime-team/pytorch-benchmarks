@@ -64,11 +64,11 @@ def make_live_plot_gpu_temp_and_fan_speed(num_gpus, refresh_interval):
         fig, get_temperature_and_update_axes, interval=refresh_interval,
         fargs=(plt, num_gpus, start, time_list, gpu_temp_list, fan_speed_list, axis_gpu_temp_list, axis_fan_speed_list)
                                            )
-    plt.show(block=False)
+    plt.show()
 
 
 def main():
-    """
+
     parser = argparse.ArgumentParser(
         description='GPU temp and fan speed live plot', formatter_class=argparse.ArgumentDefaultsHelpFormatter
                                      )
@@ -80,10 +80,9 @@ def main():
         '-ri', '--refresh_interval', type=int, default=500, required=False,
         help='Change live plot refresh interval in ms.'
                         )
-    args = parser.parse_args()"""
-    print("Check2")
+    args = parser.parse_args()
     nvidia_smi.nvmlInit()
-    make_live_plot_gpu_temp_and_fan_speed(2, 500)
+    make_live_plot_gpu_temp_and_fan_speed(args.num_gpus, args.refresh_interval)
 
 
 if __name__ == '__main__':

@@ -48,11 +48,11 @@ def load_flags():
                         )
     parser.add_argument(
         '-vf', '--val_folder', type=str, required=False,
-        help='Destination of training images. If not given, random data is used.'
+        help='Destination of validation images. If not given, random data is used.'
                         )
     parser.add_argument(
         '-nw', '--num_workers', type=int, required=False,
-        help='Number of workers for the dataloader. If not given num_gpus is used.'
+        help='Number of workers for the dataloader. If not given 2*num_gpus is used.'
                         )
     parser.add_argument(
         '-sd', '--split_data', type=float, default=1, required=False,
@@ -166,7 +166,7 @@ def load_flags():
     torch.backends.cudnn.benchmark = args.benchmark_backend
 
     if not args.num_workers:
-        args.num_workers = args.num_gpus
+        args.num_workers = 2 * args.num_gpus
 
     if args.log_file == '':
         args.log_file = \

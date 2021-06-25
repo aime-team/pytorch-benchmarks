@@ -16,7 +16,7 @@ Run main.py to start benchmarking!
   -dp, --parallel: Use DataParallel for Multi-GPU training instead of DistributedDataParallel. If not given, DistributedDataParallel is used.  
   -ddp, --distributed: Use DistributedDataParallel even for single GPU training.  
   -tf, --train_folder: Destination of training images. If not given, random data is used.  
-  -vf, --val_folder, Destination of training images. If not given, random data is used.  
+  -vf, --val_folder, Destination of validation images. If not given, random data is used.  
   -nw, --num_workers : Number of workers used by the dataloader. If not given, num_gpus is used.  
   -sd, --split_data: Splits dataset in training and evaluation dataset with given ratio.  
   -le, --load_from_epoch: Loads model state at given epoch. If -1 is given, the highest available epoch for the model and the dataset is used.  

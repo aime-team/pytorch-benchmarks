@@ -18,23 +18,23 @@ def load_flags():
                                      )
     parser.add_argument(
         '-w',  '--warm_up_steps', type=int, default=10, required=False,
-        help="Number of warm up steps in every epoch. Warm up steps will not taken into account"
+        help="Number of warm up steps in every epoch. Warm up steps will not taken into account. Default: 10"
                         )
     parser.add_argument(
-        '-ne', '--num_epochs', type=int, default=10, required=False, help='Number of total epochs. '
+        '-ne', '--num_epochs', type=int, default=10, required=False, help='Number of epochs. Default: 10'
                         )
     parser.add_argument(
-        '-b', '--batch_size', type=int, default=64, required=False, help='Batch size. Default: 64'
+        '-b', '--batch_size', type=int, default=64, required=False, help='Global batch size. Default: 64'
                         )
     parser.add_argument(
-        '-ng', '--num_gpus', type=int, default=1, required=False, help='Number of gpus used for training'
+        '-ng', '--num_gpus', type=int, default=1, required=False, help='Number of gpus used for training. Default: 1'
                         )
     parser.add_argument(
         '-m', '--model', type=str, default='resnet50', required=False,
         help='Use different model from torchvision. Default: resnet50'
                         )
     parser.add_argument(
-        '-f', '--use_fp16', action='store_true', required=False, help='Use half precision'
+        '-f', '--use_fp16', action='store_true', required=False, help='Use half precision. If not given fp32 precision is used.'
                         )
     parser.add_argument(
         '-dp', '--parallel', action='store_true', required=False, help='Use DataParallel for Multi-GPU training instead of DistributedDataParallel. If not given, DistributedDataParallel is used.'
@@ -44,11 +44,11 @@ def load_flags():
                         ) 
     parser.add_argument(
         '-tf', '--train_folder', type=str, required=False,
-        help='Destination of training images. If not given, random data is used.'
+        help='Destination of the training dataset. If not given, random data is used.'
                         )
     parser.add_argument(
         '-vf', '--val_folder', type=str, required=False,
-        help='Destination of validation images. If not given, random data is used.'
+        help='Destination of the validation dataset. If not given, random data is used.'
                         )
     parser.add_argument(
         '-nw', '--num_workers', type=int, required=False,
@@ -56,11 +56,11 @@ def load_flags():
                         )
     parser.add_argument(
         '-sd', '--split_data', type=float, default=1, required=False,
-        help='Splits dataset in training and evaluation dataset with given ratio.'
+        help='Splits the given training dataset in a training and evaluation dataset with the given ratio. Takes values between 0 and 1. Default: 1'
                         )
     parser.add_argument(
         '-le', '--load_from_epoch', type=int, default=0, required=False,
-        help='Loads model state at given epoch. '
+        help='Loads model state at given epoch of a pretrained model given in --checkpoint_folder. '
              'If -1 is given, the highest available epoch for the model and the dataset is used.'
                         )
     parser.add_argument(
@@ -69,13 +69,12 @@ def load_flags():
                         )
     parser.add_argument(
         '-ev', '--eval', action='store_true', required=False,
-        help='If given, Evaluates the model with the Validation dataset '
+        help='If given, the model is evaluated with the given validation dataset in --val_folder'
              'at the end of each epoch and prints the evaluation accuracy.'
                         )
     parser.add_argument(
         '-eo', '--eval_only', action='store_true', required=False,
-        help='Evaluation mode with metaparameters optimized for evaluation. '
-             'If not given, training mode with metaparameters optimized for training is used'
+        help='If given, the model is evaluated with the given validation dataset without any training.'
                         )
     parser.add_argument(
         '-mi', '--mean_img_per_sec', action='store_true', required=False,
@@ -107,7 +106,7 @@ def load_flags():
                         )
     parser.add_argument(
         '-pl', '--pred_pic_label', type=str, required=False,
-        help='Predict label of given picture with pretrained model.'
+        help='Predict label of given picture with a pretrained model given in --checkpoint_folder.'
                         )
     parser.add_argument(
         '-in', '--imagenet', type=str, required=False,
@@ -120,7 +119,7 @@ def load_flags():
                         )
     parser.add_argument(
         '-cf', '--checkpoint_folder', type=str, required=False,
-        help='Save training checkpoints in given folder name.'
+        help='Save training checkpoints in given folder name.  If not given, the name of the log-file is used.'
                         )
     parser.add_argument(
         '-op', '--optimizer', type=str, default='SGD', required=False,
@@ -159,14 +158,11 @@ def load_flags():
                         )
     parser.add_argument(
         '-ag', '--average_gradients', action='store_true', required=False,
-        help='Average the gradients of the model after each step on the cost of performance.'
+        help='Average the gradients of the model after each step on the cost of performance (Experimental, no improvement in training).'
                         )
     parser.add_argument(
         '-pb', '--process_group_backend', type=str, default='nccl', required=False,
-        help='Choose a different backend for the distribution process group.'
-             '"nccl" is supposed to have more features for distributed GPU training, '
-             'but the performance on resnet50 seems to be better with "gloo". '
-             'Default: "gloo"'
+        help='Choose a different backend for the distribution process group. "nccl" is supposed to have more features for distributed GPU training. Default: "nccl"'
                         )
     parser.add_argument(
         '-lb', '--log_benchmark', action='store_true', required=False,

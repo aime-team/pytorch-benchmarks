@@ -35,7 +35,7 @@ Run main.py to start benchmarking!
   -in, --imagenet: Use imagenet for training/evaluation from given path.  
   -ln, --log_file: Make a logfile and save it in /log/ under given name. If no name is given, '<num_gpus>_<GPU_name>_<model_name>_<batch_size>_<learning_rate>' is used.  
   -cf, --checkpoint_folder: Save training checkpoints in given folder name. If not given, the name of the log-file is used.
-  -op, --optimizer: Set the optimizer. Default: SGD
+  -op, --optimizer: Set the optimizer. Default: SGD 
   -do, --dist_optim: Use distributed optimizer (ZeroRedundancyOptimizer). (Experimental)  
   -do9, --dist_optim_190: Use distributed Optimizer (ZeroRedundancyOptimizer) from torch.distributed.optim (available in Pytorch 1.9.0., experimental).  
   -dm, --distribution_mode: Set distribution mode: 0 : None, 1: DistributedDataParallel (same as --distributed), 2 : DataParallel (same as --parallel)  

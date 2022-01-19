@@ -45,4 +45,5 @@ Run main.py to start benchmarking!
   -ad, --average_duration: Calculate the average of the durations measured by each gpu. The duration is needed to get the images per second.  
   -ag, --average_gradients: Average the gradients of the model after each step on the cost of performance (Experimental, no improvement in training).  
   -pb, --process_group_backend: Choose a different backend for the distribution process group. "nccl" is supposed to have more features for distributed GPU training. Default: nccl
-  -lb, --log_benchmark: Write all the benchmark results into the log file.
+  
+  -lb, --log_benchmark: Write all the benchmark results into the log file

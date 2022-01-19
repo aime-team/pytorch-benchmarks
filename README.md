@@ -34,7 +34,7 @@ Run main.py to start benchmarking!
   -pl, --pred_pic_label: Predict label of given picture with a pretrained model.  
   -in, --imagenet: Use imagenet for training/evaluation from given path.  
   -ln, --log_file: Make a logfile and save it in /log/ under given name. If no name is given, '<num_gpus>_<GPU_name>_<model_name>_<batch_size>_<learning_rate>' is used.  
-  -cf, --checkpoint_folder: Save training checkpoints in given folder name.  If not given, the name of the log-file is used.
+  -cf, --checkpoint_folder: Save training checkpoints in given folder name. If not given, the name of the log-file is used.
   -op, --optimizer: Set the optimizer. Default: SGD
   -do, --dist_optim: Use distributed optimizer (ZeroRedundancyOptimizer). (Experimental)  
   -do9, --dist_optim_190: Use distributed Optimizer (ZeroRedundancyOptimizer) from torch.distributed.optim (available in Pytorch 1.9.0., experimental).  
@@ -44,5 +44,5 @@ Run main.py to start benchmarking!
   -ni, --num_images: Number of images in the random image dataset.  
   -ad, --average_duration: Calculate the average of the durations measured by each gpu. The duration is needed to get the images per second.  
   -ag, --average_gradients: Average the gradients of the model after each step on the cost of performance (Experimental, no improvement in training).  
-  -pb, --process_group_backend: Choose a different backend for the distribution process group. "nccl" is supposed to have more features for distributed GPU training. Default: nccl
+  -pb, --process_group_backend: Choose a different backend for the distribution process group. "nccl" is supposed to have more features for distributed GPU training. Default: nccl  
   -lb, --log_benchmark: Write all the benchmark results into the log file

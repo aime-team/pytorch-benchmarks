@@ -8,11 +8,11 @@ Run main.py to start benchmarking!
 
 ## Optional arguments:
 
-  -w, --warm_up_steps : Number of warm up steps in every epoch. Warm up steps will not taken into account. Default: 10  
-  -ne, --num_epochs: Number of epochs. Default: 10  
-  -b, --batch_size : Global batch size. Default: 64  
-  -ng, --num_gpus :Number of gpus used for training. Default: 1  
   -m, --model : Model used for training. Default: resnet50  
+  -w, --warm_up_steps : Number of warm up steps in every epoch. Warm up steps will not taken into account. Default: 10  
+  -ne, --num_epochs : Number of epochs. Default: 10  
+  -b, --batch_size : Global batch size. Default: 64  
+  -ng, --num_gpus : Number of gpus used for training. Default: 1  
   -f, --use_fp16 : Use half precision. If not given fp32 precision is used.  
   -dp, --parallel: Use DataParallel for Multi-GPU training instead of DistributedDataParallel. If not given, DistributedDataParallel is used.  
   -ddp, --distributed: Use DistributedDataParallel even for single GPU training.  
@@ -27,7 +27,7 @@ Run main.py to start benchmarking!
   -mi, --mean_img_per_sec: Plot mean images per second at the end and save it in the logfile.  
   -s, --set_seed: Set the random seed used for splitting dataset into train and eval sets. Default: 1234  
   -lr, --learning_rate: Set the learning rate for training. Default: 1e-3  
-  -slr, --step_lr: Decay the learning rate by factor 10 every given epoch. Default=30
+  -slr, --step_lr: Decay the learning rate by factor 10 every given epoch. Default: 30  
   -ce, --calc_every: Set the stepsize for calculations and print outputs. Default: 10  
   -ri, --refresh_interval: Change live plot refresh interval in ms. Default: 500  
   -lp, --live_plot: Show live plot of gpu temperature and fan speed.  

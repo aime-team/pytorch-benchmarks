@@ -3,9 +3,11 @@
 Tool to benchmark multi-GPU systems and to optimize multi-GPU training with PyTorch.  
   
 ## Usage
+
 Run main.py to start benchmarking!
 
 ## Optional arguments:
+
   -w, --warm_up_steps : Number of warm up steps in every epoch. Warm up steps will not taken into account. Default: 10  
   -ne, --num_epochs: Number of epochs. Default: 10  
   -b, --batch_size : Global batch size. Default: 64  
@@ -42,5 +44,5 @@ Run main.py to start benchmarking!
   -ni, --num_images: Number of images in the random image dataset.  
   -ad, --average_duration: Calculate the average of the durations measured by each gpu. The duration is needed to get the images per second.  
   -ag, --average_gradients: Average the gradients of the model after each step on the cost of performance (Experimental, no improvement in training).  
-  -pb, --process_group_backend: Choose a different backend for the distribution process group. "nccl" is supposed to have more features for distributed GPU training. Default: "nccl"
+  -pb, --process_group_backend: Choose a different backend for the distribution process group. "nccl" is supposed to have more features for distributed GPU training. Default: nccl
   -lb, --log_benchmark: Write all the benchmark results into the log file.

@@ -13,7 +13,7 @@ Run main.py to start benchmarking!
   -b, --batch_size : Global batch size. Default: 64  
   -ng, --num_gpus :Number of gpus used for training. Default: 1  
   -m, --model : Model used for training. Default: resnet50  
-  -f, --use_fp16 : Use half precision. If not given fp32 precision is used. 
+  -f, --use_fp16 : Use half precision. If not given fp32 precision is used.  
   -dp, --parallel: Use DataParallel for Multi-GPU training instead of DistributedDataParallel. If not given, DistributedDataParallel is used.  
   -ddp, --distributed: Use DistributedDataParallel even for single GPU training.  
   -tf, --train_folder: Destination of the training dataset. If not given, random data is used.  
@@ -34,8 +34,8 @@ Run main.py to start benchmarking!
   -pl, --pred_pic_label: Predict label of given picture with a pretrained model.  
   -in, --imagenet: Use imagenet for training/evaluation from given path.  
   -ln, --log_file: Make a logfile and save it in /log/ under given name. If no name is given, '<num_gpus>_<GPU_name>_<model_name>_<batch_size>_<learning_rate>' is used.  
-  -cf, --checkpoint_folder: Save training checkpoints in given folder name. If not given, the name of the log-file is used.
-  -op, --optimizer: Set the optimizer. Default: SGD 
+  -cf, --checkpoint_folder: Save training checkpoints in given folder name. If not given, the name of the log-file is used.  
+  -op, --optimizer: Set the optimizer. Default: SGD  
   -do, --dist_optim: Use distributed optimizer (ZeroRedundancyOptimizer). (Experimental)  
   -do9, --dist_optim_190: Use distributed Optimizer (ZeroRedundancyOptimizer) from torch.distributed.optim (available in Pytorch 1.9.0., experimental).  
   -dm, --distribution_mode: Set distribution mode: 0 : None, 1: DistributedDataParallel (same as --distributed), 2 : DataParallel (same as --parallel)  

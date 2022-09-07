@@ -8,7 +8,7 @@ Run main.py to start benchmarking!
 
 ## Optional arguments:
 
-  -m, --model : Model used for training. Default: resnet50  
+  -**m**, --model : Model used for training. Default: resnet50  
   -w, --warm_up_steps : Number of warm up steps in every epoch. Warm up steps will not taken into account. Default: 10  
   -ne, --num_epochs : Number of epochs. Default: 10  
   -b, --batch_size : Global batch size. Default: 64  

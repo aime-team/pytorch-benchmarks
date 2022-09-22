@@ -90,7 +90,15 @@ def load_flags():
                         )
     parser.add_argument(
         '-slr', '--step_lr', type=int, default=30, required=False,
-        help='Decay the learning rate after by factor 10 every given epoch.'
+        help='Decay the learning rate by factor 10 every given epoch. Default: 30'
+                        )
+    parser.add_argument(
+        '-ldf', '--lr_decay_factor', type=float, default=10, required=False,
+        help='Change the factor of the learning rate decay. Default: 10'
+                        )
+    parser.add_argument(
+        '-cl', '--constant_learning_rate', action='store_true', required=False,
+        help='Train with a constant learning rate'
                         )
     parser.add_argument(
         '-ce', '--calc_every', type=int, default=10, required=False,
@@ -168,6 +176,16 @@ def load_flags():
         '-lb', '--log_benchmark', action='store_true', required=False,
         help='Write all the benchmark results into the log file.'
                         )
+    parser.add_argument(
+        '-na', '--no_augmentation', action='store_true', required=False,
+        help='No augmentation of the training dataset.'
+                        )
+    parser.add_argument(
+        '-pt', '--pretrained', action='store_true', required=False,
+        help='Load pretrained model. Default: False'
+                        )
+
+
 
     args = parser.parse_args()
 
@@ -201,14 +219,21 @@ def load_flags():
 
     if args.eval_only:
         args.num_epochs = 1
-        if args.load_from_epoch == 0:  
-            data_name = MultiGpuData.make_data_name(args)
-            sys.exit(
-                f'Evaluation with untrained model not possible. '
-                f'Load a pretrained model with "--load_from_epoch <epoch>"\n'
-                f'Highest available epoch for {args.model} with {data_name}: '
-                f'{MultiGpuModel.check_saved_checkpoint_epoch(args.model, data_name, args.checkpoint_folder)}'
-                     )
+        if args.pretrained:
+            pass
+        else:
+            if args.load_from_epoch == 0:  
+                data_name = MultiGpuData.make_data_name(args)
+                sys.exit(
+                    f'Evaluation with untrained model not possible. '
+                    f'Load a pretrained model with "--load_from_epoch <epoch>"\n'
+                    f'Highest available epoch for {args.model} with {data_name}: '
+                    f'{MultiGpuModel.check_saved_checkpoint_epoch(args.model, data_name, args.checkpoint_folder)}'
+                        )
+
+    if args.load_from_epoch == -1:
+        data_name = MultiGpuData.make_data_name(args)
+        args.load_from_epoch = MultiGpuModel.check_saved_checkpoint_epoch(args.model, data_name, args.checkpoint_folder)
 
     if not 0 < args.split_data <= 1:
         sys.exit('--split_data has to be between 0 and 1')
@@ -217,9 +242,9 @@ def load_flags():
     if args.distribution_mode is None:
         args.distribution_mode = int(args.distributed) + 2 * int(args.parallel)
 
-    if args.load_from_epoch == -1:
-        data_name = MultiGpuData.make_data_name(args)
-        args.load_from_epoch = MultiGpuModel.check_saved_checkpoint_epoch(args.model, data_name, args.checkpoint_folder)
+
+    if args.constant_learning_rate:
+        args.lr_decay_factor = 1
 
     return args
 

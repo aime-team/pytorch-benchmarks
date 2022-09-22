@@ -260,7 +260,8 @@ class Benchmark(object):
                 self.val_acc_dict[epoch] = val_acc
                 self.val_acc5_dict[epoch] = val_acc5
             prompt_str += f'epoch finished within {epoch_duration_str}.\n'
-            prompt_str += self.make_epoch_mean_img_per_sec_string(epoch)
+            if self.args.mean_img_per_sec:
+                prompt_str += self.make_epoch_mean_img_per_sec_string(epoch)
             print(prompt_str)
             
             if self.args.log_file:
@@ -271,7 +272,7 @@ class Benchmark(object):
 
     def finish_benchmark(self):
         """Writes benchmark results in a text file and calculates the mean.
-        Takes the images_per_sec_dict and the info text as arguments. Returns the mean of images per sec.
+        Returns the mean images per sec.
         """
         if self.args.mean_img_per_sec:
             mean_img_per_sec_str = self.make_final_mean_img_per_sec_string()

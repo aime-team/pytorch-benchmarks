@@ -21,10 +21,8 @@ class MultiGpuModel(torch.nn.Module):
         self.num_gpus = args.num_gpus
         self.model_name = args.model
         self.checkpoint_folder = args.checkpoint_folder
-        #self.set_distribution_mode(args.distribution_mode)
         self.model = self.load_model()
         self.set_precision_mode(args.precision)        
-
         self.model.cuda(rank)
         self.set_distribution_mode(args.distribution_mode)
         self.optimizer = self.init_optimizer()
@@ -35,7 +33,7 @@ class MultiGpuModel(torch.nn.Module):
         """Loads model from torchvision to self.model and sets attributes.
         """
         try:
-            model = getattr(torchvision.models, self.model_name)(pretrained=False)
+            model = getattr(torchvision.models, self.model_name)(pretrained=self.args.pretrained)
         except AttributeError:
             if self.rank == 0:
                 print(
@@ -105,7 +103,7 @@ class MultiGpuModel(torch.nn.Module):
         return optimizer
 
     def init_scheduler(self):
-        scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=self.args.step_lr, gamma=0.1)
+        scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=self.args.step_lr, gamma=1/self.args.lr_decay_factor)
         return scheduler
 
     def init_loss_function(self):
@@ -182,14 +180,17 @@ class MultiGpuModel(torch.nn.Module):
     def load_pretrained_model(self, epoch, data_name, rank):
         """Loads model state from file to the GPU with given rank.
         """
-        if self.args.distributed:
-            dist.barrier()
-        map_location = {'cuda:0': f'cuda:{rank}'}
-        file = self.checkpoint_folder / f'{self.model_name}_{data_name}_epoch_{epoch}.pt'
-        checkpoint = torch.load(file, map_location=map_location)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
-        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        if self.args.pretrained:
+            pass
+        else:
+            if self.args.distributed:
+                dist.barrier()
+            map_location = {'cuda:0': f'cuda:{rank}'}
+            file = self.checkpoint_folder / f'{self.model_name}_{data_name}_epoch_{epoch}.pt'
+            checkpoint = torch.load(file, map_location=map_location)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
         return True
 
     @staticmethod

@@ -109,9 +109,14 @@ class MultiGpuData(object):
 
         else:
             if self.args.train_folder:
-                train_dataset = torchvision.datasets.ImageFolder(
-                    root=self.args.train_folder, transform=MultiGpuData.transforms['train']
-                                                                 )
+                if not self.args.no_augmentation:
+                    train_dataset = torchvision.datasets.ImageFolder(
+                        root=self.args.train_folder, transform=MultiGpuData.transforms['train']
+                                                                    )
+                else:
+                    train_dataset = torchvision.datasets.ImageFolder(
+                        root=self.args.train_folder, transform=MultiGpuData.transforms['val']
+                                                                    )
             else:
                 image_size = (3, 224, 224)
                 num_images = self.args.num_images

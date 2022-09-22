@@ -65,7 +65,7 @@ def run_training_process_on_given_gpu(rank, bench_data):
                         outputs = model(data)
                         loss = model.criterion(outputs, label)
                         _, pred = torch.max(outputs.data, 1)
-                        label_resize = label.t()
+                        label_resize = label.view(-1,1)
                         _, pred5 = outputs.topk(5, 1, True, True)
                         benchmark.total_predictions += label.size(0)
                         benchmark.correct_predictions += (pred == label).sum().cuda(rank)

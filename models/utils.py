@@ -33,7 +33,7 @@ class MultiGpuModel(torch.nn.Module):
         """Loads model from torchvision to self.model and sets attributes.
         """
         try:
-            model = getattr(torchvision.models, self.model_name)(pretrained=self.args.pretrained)
+            model = getattr(torchvision.models, self.model_name)(weights=self.args.pretrained)
         except AttributeError:
             if self.rank == 0:
                 print(

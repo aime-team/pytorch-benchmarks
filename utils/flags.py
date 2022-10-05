@@ -181,8 +181,8 @@ def load_flags():
         help='No augmentation of the training dataset.'
                         )
     parser.add_argument(
-        '-pt', '--pretrained', action='store_true', required=False,
-        help='Load pretrained model. Default: False'
+        '-pt', '--pretrained', type=str, required=False,
+        help='Load pretrained model. Default: None.' 
                         )
     parser.add_argument(
         '-amp', '--auto_mixed_precision', action='store_true', required=False,

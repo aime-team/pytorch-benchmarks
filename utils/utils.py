@@ -520,7 +520,6 @@ class Protocol(object):
         return True
 
     def init_csv_file(self):
-        print(type(self.log_file))
         if self.args.load_from_epoch == 0:
             with open(self.log_file.with_suffix('.csv'), 'w') as f:
                 writer = csv.writer(f)

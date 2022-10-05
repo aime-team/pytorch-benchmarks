@@ -184,8 +184,20 @@ def load_flags():
         '-pt', '--pretrained', action='store_true', required=False,
         help='Load pretrained model. Default: False'
                         )
-
-
+    parser.add_argument(
+        '-amp', '--auto_mixed_precision', action='store_true', required=False,
+        help='Enable automatic mixed precision. Default: False'
+                        )
+    parser.add_argument(
+        '-bt', '--benchmark_train', action='store_true', required=False,
+        help='Start training for benchmark. Default: False'
+                        )
+    """                        
+    parser.add_argument(
+        '-bv', '--benchmark_val', action='store_true', required=False,
+        help='Start validation for benchmark. Default: False'
+                        )
+    """
 
     args = parser.parse_args()
 
@@ -246,6 +258,17 @@ def load_flags():
     if args.constant_learning_rate:
         args.lr_decay_factor = 1
 
+    if args.benchmark_train:
+        args.num_epochs = 1
+        args.mean_img_per_sec = True
+        args.num_images = 100*args.batch_size*args.num_gpus
+    """        
+    if args.benchmark_val:
+        args.num_epochs = 1
+        args.num_images = 5000
+        args.mean_img_per_sec = True
+        args.eval_only = True
+    """
     return args
 
 def string_or_none(str):

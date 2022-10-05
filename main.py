@@ -15,10 +15,11 @@ def run_training_process_on_given_gpu(rank, bench_data):
     args = bench_data.args
     model = MultiGpuModel(rank, args)
     benchmark = utils.Benchmark(rank, args)
-    train_dataloader, sampler = bench_data.get_train_dataloader(rank)
-    val_dataloader, _ = bench_data.get_val_dataloader(rank)
+    train_dataloader, sampler = bench_data.get_train_dataloader()
+    val_dataloader, _ = bench_data.get_val_dataloader()
     total_steps_train = len(train_dataloader)
     total_steps_val = len(val_dataloader)
+    scaler = torch.cuda.amp.GradScaler(enabled=args.auto_mixed_precision)
     
     try:
         for epoch in range(1 + args.load_from_epoch, 1 + args.load_from_epoch + args.num_epochs):
@@ -41,12 +42,14 @@ def run_training_process_on_given_gpu(rank, bench_data):
                         data = data.transpose(1,3).transpose(1,2)
 
                     model.optimizer.zero_grad()
-                    outputs = model(data)
-                    loss = model.criterion(outputs, label)
-                    loss.backward()
+                    with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.auto_mixed_precision):
+                        outputs = model(data)
+                        loss = model.criterion(outputs, label)
+                    scaler.scale(loss).backward()
                     if args.average_gradients and args.distributed:
                         model.average_gradients()
-                    model.optimizer.step()
+                    scaler.step(model.optimizer)
+                    scaler.update()
                     if step % args.calc_every == 0:
                         benchmark.calculate_benchmark(rank, epoch, step, total_steps_train, loss)
 
@@ -62,8 +65,9 @@ def run_training_process_on_given_gpu(rank, bench_data):
                         data, label = data.cuda(rank, non_blocking=args.pin_memory), label.cuda(rank, non_blocking=args.pin_memory)
                         if args.model == 'perceiver':
                             data = data.transpose(1,3).transpose(1,2)
-                        outputs = model(data)
-                        loss = model.criterion(outputs, label)
+                        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.auto_mixed_precision):
+                            outputs = model(data)
+                            loss = model.criterion(outputs, label)
                         _, pred = torch.max(outputs.data, 1)
                         label_resize = label.view(-1,1)
                         _, pred5 = outputs.topk(5, 1, True, True)

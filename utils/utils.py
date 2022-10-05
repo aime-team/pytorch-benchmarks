@@ -11,7 +11,7 @@ from pathlib import Path
 from models.utils import MultiGpuModel
 import subprocess
 import threading
-
+import csv
 
 try:
     import nvidia_smi
@@ -178,7 +178,7 @@ class Benchmark(object):
                 local_batch_size = self.args.batch_size
             else:
                 global_batch_size = self.args.batch_size
-                local_batch_size = self.args.batch_size / self.args.num_gpus
+                local_batch_size = int(self.args.batch_size / self.args.num_gpus)
 
             info_text = f'OS: {platform.uname().system}, {platform.uname().release}\n'\
                         f'Device-name: {platform.uname().node}\n'\
@@ -202,11 +202,12 @@ class Benchmark(object):
                          f'Distribution Mode: {dist_dict[self.args.distribution_mode]}\n' \
                          f'Process group backend: {self.args.process_group_backend}\n' \
                          f'Optimizer: {optimizer}\n' \
-                         f'Precision: {self.args.precision}\n' \
+                         f'Precision: {"Automatic mixed precision" if self.args.auto_mixed_precision else self.args.precision}\n' \
                          f'Log file: {self.args.log_file}\n' \
                          f'Training data: {data_name}' \
                          f'Initial learning rate: {self.args.learning_rate}\n' \
                          f'Learning rate decay step: {self.args.step_lr}\n' \
+                         f'Used data augmentation: {not self.args.no_augmentation}\n' \
                          f'Checkpoint folder: {self.args.checkpoint_folder}\n' \
                          f'Number of workers: {self.args.num_workers}\n' \
                          f'Warm up steps: {self.args.warm_up_steps}\n' \
@@ -259,6 +260,7 @@ class Benchmark(object):
                 prompt_str += f'\nValidation accuracy: {val_acc:.4f}\nValidation accuracy top5: {val_acc5:.4f}\n\nEvaluation '
                 self.val_acc_dict[epoch] = val_acc
                 self.val_acc5_dict[epoch] = val_acc5
+                
             prompt_str += f'epoch finished within {epoch_duration_str}.\n'
             if self.args.mean_img_per_sec:
                 prompt_str += self.make_epoch_mean_img_per_sec_string(epoch)
@@ -268,7 +270,10 @@ class Benchmark(object):
                 self.protocol.prompt_str_epoch += prompt_str
                 self.protocol.update()
                 self.protocol.prompt_str_epoch = ''
+                if self.eval_mode:
+                    self.protocol.update_csv_file(epoch, val_acc, val_acc5)
         return True
+
 
     def finish_benchmark(self):
         """Writes benchmark results in a text file and calculates the mean.
@@ -487,6 +492,7 @@ class Protocol(object):
     def __init__(self, args, info_text):
         self.args = args
         self.log_file = self.init_log_file(info_text)
+        self.init_csv_file()
         self.prompt_str_epoch = ''
 
     def init_log_file(self, info_text):
@@ -512,6 +518,19 @@ class Protocol(object):
         with open(self.log_file, 'a') as log_file:
             log_file.write(self.prompt_str_epoch)
         return True
+
+    def init_csv_file(self):
+        print(type(self.log_file))
+        if self.args.load_from_epoch == 0:
+            with open(self.log_file.with_suffix('.csv'), 'w') as f:
+                writer = csv.writer(f)
+        else:
+            with open(self.log_file.with_suffix('.csv'), 'a') as f:
+                writer = csv.writer(f)
+    def update_csv_file(self, epoch, val_acc, val_acc5):
+        with open(self.log_file.with_suffix('.csv'), 'a') as f:
+            writer = csv.writer(f)
+            writer.writerow((epoch, val_acc.item(), val_acc5.item()))
 
     def finish(self, final_str):
         """Writes given string with benchmark end results like mean images per second, maximum GPU temperatures 

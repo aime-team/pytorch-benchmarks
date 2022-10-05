@@ -147,8 +147,8 @@ class MultiGpuData(object):
 
         return train_dataset, val_dataset
 
-    def init_distributed_dataloader(self, dataset, rank):
-        """Initialises the dataloader with distributed sampling for the gpu with given rank.
+    def init_distributed_dataloader(self, dataset):
+        """Initializes the dataloader with distributed sampling.
         """
         if dataset:
             if self.args.distributed:
@@ -170,15 +170,15 @@ class MultiGpuData(object):
 
         return dataloader, sampler
 
-    def get_train_dataloader(self, rank):
-        """Get the dataloader of the training data for the GPU with given rank.
+    def get_train_dataloader(self):
+        """Get the dataloader of the training data.
         """
-        return self.init_distributed_dataloader(self.train_dataset, rank)
+        return self.init_distributed_dataloader(self.train_dataset)
 
-    def get_val_dataloader(self, rank):
-        """Get the dataloader of the validation data for the GPU with given rank.
+    def get_val_dataloader(self):
+        """Get the dataloader of the validation data.
         """
-        return self.init_distributed_dataloader(self.val_dataset, rank)
+        return self.init_distributed_dataloader(self.val_dataset)
 
     def get_label_dict(self):
         """Get the lookup dictionary for the class labels.

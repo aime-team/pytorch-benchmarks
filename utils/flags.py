@@ -200,7 +200,6 @@ def load_flags():
     """
 
     args = parser.parse_args()
-
     torch.backends.cudnn.benchmark = args.benchmark_backend
 
     if not args.num_workers:
@@ -218,10 +217,14 @@ def load_flags():
     else:
         args.precision = 'float'
 
+    if args.distribution_mode == 2:
+        args.parallel = True
+    elif args.distribution_mode is None:
+        args.distribution_mode = int(args.distributed) + 2 * int(args.parallel)
+
     if not args.distributed:
         args.distributed = not args.parallel and args.num_gpus > 1
-        
-    if args.distributed:
+    else:
         args.batch_size = int(args.batch_size / args.num_gpus)
 
     if args.checkpoint_folder:
@@ -251,8 +254,6 @@ def load_flags():
         sys.exit('--split_data has to be between 0 and 1')
 
 
-    if args.distribution_mode is None:
-        args.distribution_mode = int(args.distributed) + 2 * int(args.parallel)
 
 
     if args.constant_learning_rate:

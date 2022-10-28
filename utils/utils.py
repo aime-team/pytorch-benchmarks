@@ -186,10 +186,11 @@ class Benchmark(object):
             for gpu_id in range(self.args.num_gpus):
                 gpu_name = str(torch.cuda.get_device_name(gpu_id))
                 info_text += f'{gpu_id}: {gpu_name}\n'
-            try:
-                info_text += f'Nvidia GPU driver version: {GpuInfo.get_driver_version().decode()}\n'
-            except NameError:
-                pass
+            if not self.args.no_temp:
+                try:
+                    info_text += f'Nvidia GPU driver version: {GpuInfo.get_driver_version().decode()}\n'
+                except NameError:
+                    pass
             info_text += f'Available GPUs on device: {torch.cuda.device_count()}\n' \
                          f'Cuda-version: {torch.version.cuda}\n' \
                          f'Cudnn-version: {torch.backends.cudnn.version()}\n' \

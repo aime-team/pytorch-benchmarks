@@ -192,6 +192,10 @@ def load_flags():
         '-bt', '--benchmark_train', action='store_true', required=False,
         help='Start training for benchmark. Default: False'
                         )
+    parser.add_argument(
+        '-bts', '--benchmark_train_steps', type=int, default=60, required=False,
+        help='Number of steps for --benchmark_train.'
+                        )
     """                        
     parser.add_argument(
         '-bv', '--benchmark_val', action='store_true', required=False,
@@ -262,7 +266,7 @@ def load_flags():
     if args.benchmark_train:
         args.num_epochs = 1
         args.mean_img_per_sec = True
-        args.num_images = 100*args.batch_size*args.num_gpus
+        args.num_images = args.benchmark_train_steps*args.batch_size*args.num_gpus
     """        
     if args.benchmark_val:
         args.num_epochs = 1

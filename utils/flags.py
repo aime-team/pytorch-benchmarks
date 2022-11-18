@@ -221,15 +221,17 @@ def load_flags():
     else:
         args.precision = 'float'
 
+    if not args.distributed:
+        args.distributed = not args.parallel and args.num_gpus > 1
+    else:
+        args.batch_size = int(args.batch_size / args.num_gpus)
+
     if args.distribution_mode == 2:
         args.parallel = True
     elif args.distribution_mode is None:
         args.distribution_mode = int(args.distributed) + 2 * int(args.parallel)
 
-    if not args.distributed:
-        args.distributed = not args.parallel and args.num_gpus > 1
-    else:
-        args.batch_size = int(args.batch_size / args.num_gpus)
+
 
     if args.checkpoint_folder:
         args.checkpoint_folder = Path(__file__).absolute().parent.parent / 'model_checkpoints' / args.checkpoint_folder

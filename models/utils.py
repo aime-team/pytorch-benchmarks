@@ -151,7 +151,7 @@ class MultiGpuModel(torch.nn.Module):
         return True
 
     def do_pytorch2_optimizations(self):
-        if self.args.pytorch2:                    
+        if self.args.compile:                    
             torch.set_float32_matmul_precision('high')
             self.model = torch.compile(self.model)
 

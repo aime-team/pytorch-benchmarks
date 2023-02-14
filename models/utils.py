@@ -28,6 +28,7 @@ class MultiGpuModel(torch.nn.Module):
         self.optimizer = self.init_optimizer()
         self.criterion = self.init_loss_function()
         self.scheduler = self.init_scheduler()
+        self.do_pytorch2_optimizations()
 
     def get_model_from_torchvision(self):
         """Loads model from torchvision to self.model and sets attributes.
@@ -70,6 +71,8 @@ class MultiGpuModel(torch.nn.Module):
             )
         else:
             model = self.get_model_from_torchvision()
+        #model = torch.compile(model)
+
         return model
         
 
@@ -146,6 +149,11 @@ class MultiGpuModel(torch.nn.Module):
         elif distribution_mode == 2:
             self.model = torch.nn.parallel.DataParallel(self.model, device_ids=list(range(self.num_gpus)), dim=0)
         return True
+
+    def do_pytorch2_optimizations(self):
+        if self.args.pytorch2:                    
+            torch.set_float32_matmul_precision('high')
+            self.model = torch.compile(self.model)
 
     def forward(self, data):
         """Connects self.model(input) to the class.

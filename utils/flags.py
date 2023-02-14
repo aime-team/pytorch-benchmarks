@@ -193,9 +193,14 @@ def load_flags():
         help='Start training for benchmark. Default: False'
                         )
     parser.add_argument(
+        '-pt2', '--compile', action='store_true', required=False,
+        help='Do optimizations for Pytorch 2. Does not work with Pytorch 1. Default: False'
+                        )
+    parser.add_argument(
         '-bts', '--benchmark_train_steps', type=int, default=60, required=False,
         help='Number of steps for --benchmark_train.'
                         )
+
     """                        
     parser.add_argument(
         '-bv', '--benchmark_val', action='store_true', required=False,
@@ -223,8 +228,6 @@ def load_flags():
 
     if not args.distributed:
         args.distributed = not args.parallel and args.num_gpus > 1
-    else:
-        args.batch_size = int(args.batch_size / args.num_gpus)
 
     if args.distribution_mode == 2:
         args.parallel = True
@@ -232,6 +235,8 @@ def load_flags():
         args.distribution_mode = int(args.distributed) + 2 * int(args.parallel)
 
 
+    else:
+        args.batch_size = int(args.batch_size / args.num_gpus)
 
     if args.checkpoint_folder:
         args.checkpoint_folder = Path(__file__).absolute().parent.parent / 'model_checkpoints' / args.checkpoint_folder

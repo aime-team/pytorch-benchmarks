@@ -24,7 +24,10 @@ def load_flags():
         '-ne', '--num_epochs', type=int, default=10, required=False, help='Number of epochs. Default: 10'
                         )
     parser.add_argument(
-        '-b', '--batch_size', type=int, default=64, required=False, help='Global batch size. Default: 64'
+        '-b', '--batch_size', type=int, required=False, help='Local batch size. Default: 64'
+                        )
+    parser.add_argument(
+        '-gb', '--global_batch_size', type=int, required=False, help='Local batch size. Default: 64'
                         )
     parser.add_argument(
         '-ng', '--num_gpus', type=int, default=1, required=False, help='Number of gpus used for training. Default: 1'
@@ -211,6 +214,16 @@ def load_flags():
     args = parser.parse_args()
     torch.backends.cudnn.benchmark = args.benchmark_backend
 
+
+    if not args.batch_size:
+        if args.global_batch_size:
+            args.batch_size = int(args.global_batch_size / args.num_gpus) 
+        else:
+            args.batch_size = 64
+    else:
+        if args.global_batch_size and args.global_batch_size != args.num_gpus * args.batch_size:
+            sys.exit("global_batch_size is supposed to be local_batch_size * num_gpus, if they are both given. Choose either or.")
+
     if not args.num_workers:
         args.num_workers = 2 * args.num_gpus
 
@@ -231,12 +244,16 @@ def load_flags():
 
     if args.distribution_mode == 2:
         args.parallel = True
+        args.distributed = False
+    if args.distribution_mode == 1:
+        args.distributed = True
+    if args.distribution_mode == 0 and args.num_gpus > 0:
+        sys.exit('Choose either --num_gpus 1 or --distribution_mode 1 or 2.')
     elif args.distribution_mode is None:
         args.distribution_mode = int(args.distributed) + 2 * int(args.parallel)
 
-
-    else:
-        args.batch_size = int(args.batch_size / args.num_gpus)
+    if args.parallel:
+        args.batch_size = int(args.batch_size * args.num_gpus)
 
     if args.checkpoint_folder:
         args.checkpoint_folder = Path(__file__).absolute().parent.parent / 'model_checkpoints' / args.checkpoint_folder

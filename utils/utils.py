@@ -155,7 +155,7 @@ class Benchmark(object):
             dist_dict = {
                 0 : 'Single GPU Training ', 
                 1 : 'Distributed Data Parallel', 
-                2 : ' Data Parallel'
+                2 : 'Data Parallel'
                          }
 
             if self.args.dist_optim:

@@ -313,6 +313,6 @@ class MultiGpuBertData(MultiGpuData):
 def load_data(args):
     if args.bert:
         return MultiGpuBertData(args)
-    elif args.model == 'resnet50':
+    else:
         return MultiGpuResNetData(args)
 

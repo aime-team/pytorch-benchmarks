@@ -465,7 +465,7 @@ class Flags():
         if self.args.bert:
             self.args.iterations = 'Sequences'
             self.args.find_unused_parameters = True
-        if self.args.model in ['resnet50', 'perceiver']:
+        else:
             self.args.iterations = 'Images' 
         if self.args.num_workers is None:
             self.args.num_workers = 4 * self.args.num_gpus
@@ -501,7 +501,8 @@ class Flags():
         elif self.args.train_image_folder:
             data_name_list = self.args.train_image_folder.strip('/').split('/')
             self.args.data_name  = f'{data_name_list[-2]}_{data_name_list[-1]}'
-        elif self.args.data_name.lower() == 'squad':
+
+        elif self.args.data_name and self.args.data_name.lower() == 'squad':
             self.args.data_name = 'SQuAD'
             if not self.args.train_data_file:
                 self.args.train_data_file = Path(__file__).absolute().parent.parent / 'data' / 'squad' / 'train_squad.json'

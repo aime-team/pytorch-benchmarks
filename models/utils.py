@@ -5,7 +5,7 @@ import torchvision
 import torch.distributed as dist
 import sys
 from utils.zero_redundancy_optimizer import ZeroRedundancyOptimizer
-from utils.optimizer import Lamb
+from models.optimizer import BertAdam, Lamb
 
 
 class MultiGpuModel(torch.nn.Module):
@@ -16,65 +16,49 @@ class MultiGpuModel(torch.nn.Module):
         """
         super(MultiGpuModel, self).__init__()
         torch.cuda.set_device(rank)
+        self.device = torch.device("cuda", rank)
         self.rank = rank
         self.args = args
-        self.num_gpus = args.num_gpus
-        self.model_name = args.model
-        self.checkpoint_folder = args.checkpoint_folder
-        self.model = self.load_model()
-        self.set_precision_mode(args.precision)        
-        self.model.cuda(rank)
-        self.set_distribution_mode(args.distribution_mode)
+        self.model = self.init_model()
+        self.set_precision_mode(self.args.precision)        
+        self.set_distribution_mode(self.args.distribution_mode)
         self.optimizer = self.init_optimizer()
         self.criterion = self.init_loss_function()
         self.scheduler = self.init_scheduler()
+        self.scaler = self.init_scaler()
+        self.set_seed()
+        self.load_checkpoint()
         self.do_pytorch2_optimizations()
 
     def get_model_from_torchvision(self):
         """Loads model from torchvision to self.model and sets attributes.
         """
         try:
-            model = getattr(torchvision.models, self.model_name)(weights=self.args.pretrained)
+            weights = self.get_weights()
+            
+            model = getattr(torchvision.models, self.args.model)(weights=weights)
         except AttributeError:
             if self.rank == 0:
                 print(
-                    f'There is no model with the name {self.model_name} in torchvision.\n'
+                    f'There is no model with the name {self.args.model} in torchvision.\n'
                     f'The following models are available for benchmark:\n'
-                    f'{self.get_available_models()}'
+                    f'{torchvision.models.list_models()}'
                     )
             sys.exit(0)
         return model
 
-    def load_model(self):
-        if self.model_name == 'perceiver':
-            from models.perceiver import Perceiver
+    def init_model(self):
+        return self.get_model_from_torchvision().to(self.device)
 
-            model = Perceiver(
-                input_channels = 3,          # number of channels for each token of the input
-                input_axis = 2,              # number of axis for input data (2 for images, 3 for video)
-                num_freq_bands = 6,          # number of freq bands, with original value (2 * K + 1)
-                max_freq = 10.,              # maximum frequency, hyperparameter depending on how fine the data is
-                depth = 6,                   # depth of net. The shape of the final attention mechanism will be:
-                                            #   depth * (cross attention -> self_per_cross_attn * self attention)
-                num_latents = 256,           # number of latents, or induced set points, or centroids. different papers giving it different names
-                latent_dim = 512,            # latent dimension
-                cross_heads = 1,             # number of heads for cross attention. paper said 1
-                latent_heads = 8,            # number of heads for latent self attention, 8
-                cross_dim_head = 64,         # number of dimensions per cross attention head
-                latent_dim_head = 64,        # number of dimensions per latent self attention head
-                num_classes = 1000,          # output number of classes
-                attn_dropout = 0.,
-                ff_dropout = 0.,
-                weight_tie_layers = False,   # whether to weight tie layers (optional, as indicated in the diagram)
-                fourier_encode_data = True,  # whether to auto-fourier encode the data, using the input_axis given. defaults to True, but can be turned off if you are fourier encoding the data yourself
-                self_per_cross_attn = 2      # number of self attention blocks per cross attention
-            )
+    def get_weights(self):
+        if self.args.pretrained:
+            if self.args.model == 'resnet50':
+                weights = torchvision.models.ResNet50_Weights.DEFAULT
+            else:
+                sys.exit('Weights for this model not implemented yet')
         else:
-            model = self.get_model_from_torchvision()
-        #model = torch.compile(model)
-
-        return model
-        
+            weights = None
+      
 
     def init_optimizer(self):
         """Initializes the optimizer.
@@ -100,7 +84,7 @@ class MultiGpuModel(torch.nn.Module):
                 print(
                     f'There is no optimizer called {self.args.optimizer}. '
                     f'Use "SGD" or "Lamb".\n'
-                      )
+                    )
             sys.exit(0)
         
         return optimizer
@@ -109,10 +93,14 @@ class MultiGpuModel(torch.nn.Module):
         scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=self.args.step_lr, gamma=1/self.args.lr_decay_factor)
         return scheduler
 
-    def init_loss_function(self):
+    def init_scaler(self):
+        scaler = torch.cuda.amp.GradScaler(enabled=self.args.auto_mixed_precision)
+        return scaler
+
+    def init_loss_function(self, ignore_index=-100):
         """Initializes the loss function CrossEntropyLoss.
         """
-        criterion = torch.nn.CrossEntropyLoss()
+        criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_index)
         criterion.cuda(self.rank)
         return criterion
 
@@ -136,18 +124,18 @@ class MultiGpuModel(torch.nn.Module):
             try:
                 dist.init_process_group(
                     backend=self.args.process_group_backend, rank=self.rank, 
-                    world_size=self.num_gpus, init_method='env://'
+                    world_size=self.args.num_gpus, init_method='env://'
                                         )
             except ValueError:
                 if self.rank == 0:
                     print(
                         f'There is no backend called {self.args.process_group_backend}. '
-                        f'Use gloo (default) or nccl.\n'
+                        f'Use nccl (default) or gloo.\n'
                         )
                 sys.exit(0)
-            self.model = torch.nn.parallel.DistributedDataParallel(self.model, device_ids=[self.rank])
+            self.model = torch.nn.parallel.DistributedDataParallel(self.model, device_ids=[self.rank], find_unused_parameters=self.args.find_unused_parameters)
         elif distribution_mode == 2:
-            self.model = torch.nn.parallel.DataParallel(self.model, device_ids=list(range(self.num_gpus)), dim=0)
+            self.model = torch.nn.parallel.DataParallel(self.model, device_ids=list(range(self.args.num_gpus)), dim=0)
         return True
 
     def do_pytorch2_optimizations(self):
@@ -155,29 +143,33 @@ class MultiGpuModel(torch.nn.Module):
             torch.set_float32_matmul_precision('high')
             self.model = torch.compile(self.model)
 
-    def forward(self, data):
+    def forward(self, *input):
         """Connects self.model(input) to the class.
         """
-        return self.model(data)
+        return self.model(*input)
 
-    def save_model(self, epoch, data_name):
+    def save_checkpoint(self, epoch, data_name):
         """Saves model checkpoint on given epoch with given data name.
         """
         if self.args.dist_optim or self.args.dist_optim_190:
             dist.barrier()
             for gpu_id in range(self.args.num_gpus):
                 self.optimizer.consolidate_state_dict(to=gpu_id)
-        if not self.checkpoint_folder.parent.is_dir():
-            self.checkpoint_folder.parent.mkdir()        
-        if not self.checkpoint_folder.is_dir():
-            self.checkpoint_folder.mkdir()
-        file = self.checkpoint_folder / f'{self.model_name}_{data_name}_epoch_{epoch}.pt'
+        if not self.args.checkpoint_folder.parent.is_dir():
+            self.args.checkpoint_folder.parent.mkdir()        
+        if not self.args.checkpoint_folder.is_dir():
+            self.args.checkpoint_folder.mkdir()
+        file = self.args.checkpoint_folder / f'{self.args.model}_{data_name}_epoch_{epoch}.pt'
         if not file.is_file():
             file.touch()
+        if self.args.distributed:
+            model_state_dict = self.model.module.state_dict()
+        else:
+            model_state_dict = self.model.state_dict()
         torch.save(
             {
                 'epoch': epoch,
-                'model_state_dict': self.model.state_dict(),
+                'model_state_dict': model_state_dict,
                 'optimizer_state_dict': self.optimizer.state_dict(),
                 'scheduler_state_dict': self.scheduler.state_dict()
             },
@@ -185,21 +177,48 @@ class MultiGpuModel(torch.nn.Module):
                    )
         return True
 
-    def load_pretrained_model(self, epoch, data_name, rank):
-        """Loads model state from file to the GPU with given rank.
+
+    def load_checkpoint(self):
+        """Loads model checkpoint from file to the GPU with given rank.
         """
-        if self.args.pretrained:
-            pass
-        else:
-            if self.args.distributed:
-                dist.barrier()
-            map_location = {'cuda:0': f'cuda:{rank}'}
-            file = self.checkpoint_folder / f'{self.model_name}_{data_name}_epoch_{epoch}.pt'
-            checkpoint = torch.load(file, map_location=map_location)
+        if self.args.load_from_epoch != 0:
+            if self.rank == 0:
+                print(f'Load checkpoint from {self.args.checkpoint_file}...', end='', flush=True)
+            map_location = {'cuda:0': f'cuda:{self.rank}'}
+            checkpoint = torch.load(self.args.checkpoint_file, map_location=map_location)
             self.model.load_state_dict(checkpoint['model_state_dict'])
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        return True
+            if self.rank == 0:
+                print('Done')
+        elif self.args.pretrained and not self.args.model == 'resnet50':
+            if self.rank == 0:
+                print(f'Load checkpoint from {self.args.checkpoint_file}...', end='', flush=True)
+            self.load_downloaded_checkpoint()
+            if self.rank == 0:
+                print('Done')
+
+
+    def load_downloaded_checkpoint(self):
+        if self.args.pretrained:
+            map_location = {'cuda:0': f'cuda:{self.rank}'}
+            state_dict = torch.load(self.args.checkpoint_file, map_location=map_location)
+            try:
+                self.model.load_state_dict(state_dict, strict=False)
+            except RuntimeError:
+                dist.init_process_group(backend=self.args.process_group_backend, rank=self.rank, 
+                    world_size=self.args.num_gpus, init_method='env://')
+                self.model = torch.nn.parallel.DistributedDataParallel(self.model, device_ids=[self.rank], find_unused_parameters=True)
+                self.model.load_state_dict(state_dict, strict=False)
+                self.model = self.model.module
+
+
+    def set_seed(self):
+            
+        if self.args.seed:
+            random.seed(self.args.seed)
+            np.random.seed(self.args.seed)
+            torch.manual_seed(self.args.seed)
 
     @staticmethod
     def check_saved_checkpoint_epoch(model_name, data_name, checkpoint_folder):
@@ -238,26 +257,6 @@ class MultiGpuModel(torch.nn.Module):
 
         return all_models_str
 
-    def predict_label_for_single_picture(self):
-        """Evaluates a single picture given in args.pred_pic_label, prints and returns the predicted label.
-        """
-        if self.args.distributed:
-            dist.init_process_group(backend='gloo', rank=0, world_size=self.num_gpus, init_method="env://")
-        from data.data import MultiGpuData
-        img_data = MultiGpuData(self.args)
-        if self.args.load_from_epoch == -1:
-            self.args.load_from_epoch = MultiGpuModel.check_saved_checkpoint_epoch(self.args.model, img_data.data_name, self.args.checkpoint_folder)
-        image = MultiGpuData.load_single_picture(self.args.pred_pic_label)
-        #self.model.model = self.model.load_pretrained_model(
-        #    self.args.load_from_epoch, img_data.data_name, 0
-        #                               )
-        output = self.model(image)
-        prediction = img_data.label_dict[int(torch.argmax(output, 1))]
-        dist.destroy_process_group()
-        sys.exit(
-            f'\nThe predicted class calculated by {self.args.model} trained by {img_data.data_name} '
-            f'until epoch {self.args.load_from_epoch} is: {prediction}\n'
-                 )  
 
     def average_gradients(self):
         """Calculates the average of the gradients over all gpus.
@@ -265,9 +264,186 @@ class MultiGpuModel(torch.nn.Module):
         for param in self.model.parameters():
             dist.barrier()
             dist.all_reduce(param.grad.data, op=dist.ReduceOp.SUM)
-            param.grad.data /= self.num_gpus
+            param.grad.data /= self.args.num_gpus
         return True
 
+class MultiGpuBertModel(MultiGpuModel):
+    def __init__(self, rank, args):
+        """Initialises the model and the training parameters.
+        """
+        super(MultiGpuBertModel, self).__init__(rank, args)
+
+    def init_model(self):
+        import models.bert
+
+        config = models.bert.BertConfig.from_dict(self.args.bert_config_dict)
+        # Padding for divisibility by 8
+        if config.vocab_size % 8 != 0:
+            config.vocab_size += 8 - (config.vocab_size % 8)
+
+        model = models.bert.BertForQuestionAnswering(config)
+        return model.to(self.device)
+
+    def init_optimizer(self):
+        """Initializes the optimizer and the scheduler.
+        """
+        
+        # Prepare optimizer
+        param_optimizer = list(self.model.named_parameters())
+
+        # hack to remove pooler, which is not used
+        # thus it produce None grad that break apex
+        param_optimizer = [n for n in param_optimizer if 'pooler' not in n[0]]
+
+        no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
+            {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        ]
+
+        """if self.args.auto_mixed_precision:
+            optimizer = FusedAdam(optimizer_grouped_parameters,
+                                lr=args.learning_rate,
+                                bias_correction=False)
+            scheduler = LinearWarmUpScheduler(optimizer, warmup=self.args.warmup_proportion, total_steps=num_train_optimization_steps)
+        """
+        optimizer = BertAdam(optimizer_grouped_parameters,
+                    lr=self.args.learning_rate,
+                    warmup=self.args.warmup_proportion,
+                    t_total=self.args.num_train_optimization_steps)
+        
+        return optimizer
+
+    def do_backpropagation(self, model_output, model_target_output):
+
+        start_logits, end_logits = model_output
+        start_positions, end_positions = model_target_output
+        if len(start_positions.size()) > 1:
+            start_positions = start_positions.squeeze(-1)
+        if len(end_positions.size()) > 1:
+            end_positions = end_positions.squeeze(-1)
+        ignored_index = start_logits.size(1)
+        
+        start_positions.clamp_(0, ignored_index)
+        end_positions.clamp_(0, ignored_index)
+
+        loss_fct = self.init_loss_function(ignore_index=ignored_index)
+        
+        start_loss = loss_fct(start_logits, start_positions)
+        end_loss = loss_fct(end_logits, end_positions)
+        loss = (start_loss + end_loss) / 2
+        if self.args.num_gpus > 1:
+            loss = loss.mean() 
+        if self.args.gradient_accumulation_steps > 1:
+            loss = loss / self.args.gradient_accumulation_steps
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        return loss
+
+    def do_batch_processing(self, batch):
+        batch = tuple(t.to(self.device, non_blocking=self.args.pin_memory) for t in batch) 
+        model_input, model_target_output = batch[0:3], batch[3:5] 
+        return model_input, model_target_output
+
+    def evaluate(self):
+        pass
+        
+
+class MultiGpuImageModel(MultiGpuModel):
+    def __init__(self, rank, args):
+        """Initialises the model and the training parameters.
+        """
+        super(MultiGpuImageModel, self).__init__(rank, args)
+
+    def do_backpropagation(self, model_output, model_target_output):
+        loss = self.criterion(model_output, model_target_output)
+        self.scaler.scale(loss).backward()
+        if self.args.average_gradients and self.args.distributed:
+            self.average_gradients()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.scheduler.step()
+        return loss
+
+    def do_batch_processing(self, batch):
+        batch = tuple(element.to(self.device, non_blocking=self.args.pin_memory) for element in batch) 
+        model_input, label = batch
+        return  (model_input,),  label
+        
+
+
+    def predict_label_for_single_picture(self):
+        """Evaluates a single picture given in args.pred_pic_label, prints and returns the predicted label.
+        """
+        if self.args.distributed:
+            dist.init_process_group(backend=self.args.process_group_backend, rank=self.rank, 
+                    world_size=self.args.num_gpus, init_method='env://')
+        from data.data import MultiGpuData
+        img_data = MultiGpuData(self.args)
+        if self.args.load_from_epoch == -1:
+            self.args.load_from_epoch = MultiGpuModel.check_saved_checkpoint_epoch(self.args.model, img_data.data_name, self.args.checkpoint_folder)
+        image = img_data.load_single_picture(self.args.pred_pic_label)
+        #self.model.model = self.model.load_checkpoint(
+        #    self.args.load_from_epoch, img_data.data_name, 0
+        #                               )
+        output = self.model(image)
+        label_dict = img_data.get_label_dict()
+        prediction = label_dict[int(torch.argmax(output, 1))]
+        dist.destroy_process_group()
+        sys.exit(
+            f'\nThe predicted class calculated by {self.args.model} trained by {img_data.data_name} '
+            f'until epoch {self.args.load_from_epoch} is: {prediction}\n'
+                 )  
+
+
+
+class MultiGpuPerceiverModel(MultiGpuModel):
+    def __init__(self, rank, args):
+        """Initialises the model and the training parameters.
+        """
+        super(MultiGpuPerceiverModel, self).__init__(rank, args)
+
+    def init_model(self):
+        from models.perceiver import Perceiver
+
+        model = Perceiver(
+            input_channels = 3,          # number of channels for each token of the input
+            input_axis = 2,              # number of axis for input data (2 for images, 3 for video)
+            num_freq_bands = 6,          # number of freq bands, with original value (2 * K + 1)
+            max_freq = 10.,              # maximum frequency, hyperparameter depending on how fine the data is
+            depth = 6,                   # depth of net. The shape of the final attention mechanism will be:
+                                        #   depth * (cross attention -> self_per_cross_attn * self attention)
+            num_latents = 256,           # number of latents, or induced set points, or centroids. different papers giving it different names
+            latent_dim = 512,            # latent dimension
+            cross_heads = 1,             # number of heads for cross attention. paper said 1
+            latent_heads = 8,            # number of heads for latent self attention, 8
+            cross_dim_head = 64,         # number of dimensions per cross attention head
+            latent_dim_head = 64,        # number of dimensions per latent self attention head
+            num_classes = 1000,          # output number of classes
+            attn_dropout = 0.,
+            ff_dropout = 0.,
+            weight_tie_layers = False,   # whether to weight tie layers (optional, as indicated in the diagram)
+            fourier_encode_data = True,  # whether to auto-fourier encode the data, using the input_axis given. defaults to True, but can be turned off if you are fourier encoding the data yourself
+            self_per_cross_attn = 2      # number of self attention blocks per cross attention
+        )
+        return model.to(self.device)
+
+    def do_backpropagation(self, model_output, model_target_output):
+        loss = self.criterion(model_output, model_target_output)
+        self.scaler.scale(loss).backward()
+        if self.args.average_gradients and self.args.distributed:
+            self.average_gradients()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.scheduler.step()
+        return loss
+
+    def do_batch_processing(self, batch):
+        batch = tuple(element.to(self.device, non_blocking=self.args.pin_memory) for element in batch) 
+        model_input, model_target_output = batch
+        model_target_output = model_target_output.transpose(1,3).transpose(1,2)
+        return model_input, model_target_output
 
 class ToFp16(torch.nn.Module):
     """Utility module that implements::
@@ -299,3 +475,12 @@ def network_to_half(network):
     Retained for legacy purposes. It is recommended to use FP16Model.
     """
     return torch.nn.Sequential(ToFp16(), bn_convert_float(network.half()))
+
+def init_multi_gpu_model(rank, args):
+    if args.bert:
+        model = MultiGpuBertModel(rank, args)
+    elif args.model == 'perceiver':
+        model = MultiGpuPerceiverModel(rank, args)
+    else:
+        model = MultiGpuImageModel(rank,args)
+    return model

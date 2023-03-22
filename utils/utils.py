@@ -12,6 +12,11 @@ from models.utils import MultiGpuModel
 import subprocess
 import threading
 import csv
+from collections import Counter, namedtuple
+import json
+import re
+
+EVAL_MODE_DICT = {True: 'evaluation', False: 'training'}
 
 try:
     import nvidia_smi
@@ -23,10 +28,10 @@ try:
         def __init__(self, num_gpus):
             nvidia_smi.nvmlInit()
             self.num_gpus = num_gpus
-            self.gpu_temp_list = [0 for gpu_id in range(num_gpus)]
-            self.fan_speed_list = [0 for gpu_id in range(num_gpus)]
-            self.gpu_usage_list = [0 for gpu_id in range(num_gpus)]
-            self.memory_usage_list = [0 for gpu_id in range(num_gpus)]
+            self.gpu_temp_list = []
+            self.fan_speed_list = []
+            self.gpu_usage_list = []
+            self.memory_usage_list = []
 
         @staticmethod
         def get_driver_version():
@@ -38,22 +43,22 @@ try:
             """Returns tuple with list gpu attributes for all gpus.
             Updates all instance variables with the current state.
             """
-            gpu_temp_list = []
-            fan_speed_list = []
-            gpu_usage_list = []
-            memory_usage_list = []
+            current_gpu_temp_list = []
+            current_fan_speed_list = []
+            current_gpu_usage_list = []
+            current_memory_usage_list = []
             for gpu_id in range(self.num_gpus):
                 gpu_temp, fan_speed, gpu_usage, memory_usage = GpuInfo.get_current_attributes(gpu_id)
-                gpu_temp_list.append(gpu_temp)
-                fan_speed_list.append(fan_speed)
-                gpu_usage_list.append(gpu_usage)
-                memory_usage_list.append(memory_usage)
-            self.gpu_temp_list = gpu_temp_list
-            self.fan_speed_list = fan_speed_list
-            self.gpu_usage_list = gpu_usage_list
-            self.memory_usage_list = memory_usage_list
+                current_gpu_temp_list.append(gpu_temp)
+                current_fan_speed_list.append(fan_speed)
+                current_gpu_usage_list.append(gpu_usage)
+                current_memory_usage_list.append(memory_usage)
+            self.gpu_temp_list.append(current_gpu_temp_list)
+            self.fan_speed_list.append(current_fan_speed_list)
+            self.gpu_usage_list.append(current_gpu_usage_list)
+            self.memory_usage_list.append(current_memory_usage_list)
 
-            return gpu_temp_list, fan_speed_list, gpu_usage_list, memory_usage_list
+            return current_gpu_temp_list, current_fan_speed_list, current_gpu_usage_list, current_memory_usage_list
 
         @staticmethod
         def get_current_attributes(gpu_id):
@@ -72,14 +77,32 @@ try:
         def get_gpu_info_str(self):
             """Returns gpu info string for all gpus.
             """
+            current_gpu_temp_list, current_fan_speed_list, current_gpu_usage_list, current_memory_usage_list = self.get_current_attributes_all_gpus()
             gpu_info_str = ''
             for gpu_id in range(self.num_gpus):
-                gpu_info_str += f'GPU-ID: {gpu_id}, Temperature: {self.gpu_temp_list[gpu_id]} °C, ' \
-                                f'Fan speed: {self.fan_speed_list[gpu_id]}%, ' \
-                                f'GPU usage: {self.gpu_usage_list[gpu_id]}%, ' \
-                                f'Memory used: [{round((self.memory_usage_list[gpu_id][0] / 1024) / 1024 / 1024, 1)}' \
-                                f'/ {round((self.memory_usage_list[gpu_id][1] / 1024) / 1024 / 1024, 1)}] GB\n'
+                gpu_info_str += f'GPU-ID: {gpu_id}, Temperature: {current_gpu_temp_list[gpu_id]} °C, ' \
+                                f'Fan speed: {current_fan_speed_list[gpu_id]}%, ' \
+                                f'GPU usage: {current_gpu_usage_list[gpu_id]}%, ' \
+                                f'Memory used: [{round((current_memory_usage_list[gpu_id][0] / 1024) / 1024 / 1024, 1)}' \
+                                f'/ {round((current_memory_usage_list[gpu_id][1] / 1024) / 1024 / 1024, 1)}] GB\n'
             return gpu_info_str
+
+        def get_list_of_max_temperatures_of_each_gpu(self):
+            """Returns a list containing the maximum temperatures of all gpus ordered by rank.
+            """
+            gpu_temp_array = np.array(self.gpu_temp_list).transpose()
+            return [max(gpu_temp_array[gpu_id]) for gpu_id in range(self.num_gpus)]
+
+        def get_max_temperature_str(self):
+            """Calculates the maximum temperature for each GPU and returns a string containing these infos.
+            """
+            max_temp_list = self.get_list_of_max_temperatures_of_each_gpu()
+            max_temp_str = f'\nMaximum temperature(s): '
+            for gpu_id, max_temp in enumerate(max_temp_list):
+                if not gpu_id == 0:
+                    max_temp_str += '   ||  '
+                max_temp_str += f'GPU {gpu_id}: {max_temp} °C'
+            return max_temp_str
 
 except ModuleNotFoundError:
     pass
@@ -94,31 +117,137 @@ class Benchmark(object):
         self.epoch_start_time = self.start_time
         self.rank = rank
         self.gpu_temp_list = []
-        self.img_per_sec_dicts = [{},{}]
-        self.val_acc_dict = {}
-        self.val_acc5_dict = {}
+        self.it_per_sec_dicts = [{},{}]
+        self.mean_it_per_sec_dicts_per_epoch = [{},{}]
+        self.eval_mode = False
+        self.warm_up_stage = True
+
+
+    def check_if_warm_up_stage(self, epoch, step):
+        """Check if the process is still in warm up stage and sets the boolean 
+        variable self.warm_up_stage respectively. Returns self.warm_up_stage.
+        """
+        if step <= self.args.warm_up_steps:
+            self.warm_up_stage = True
+        else:
+            self.warm_up_stage = False
+        return self.warm_up_stage
+
+
+    def calculate_iterations_per_sec(self, epoch, step):
+        """Returns iterations per second for given arguments.
+        """
+        duration = self.get_duration()
+        it_per_sec = self.args.batch_size * self.args.calc_every * self.args.num_gpus / duration
+        if self.args.parallel:
+            it_per_sec /= self.args.num_gpus
+        if self.args.mean_it_per_sec and not self.warm_up_stage:
+            self.it_per_sec_dicts[int(self.eval_mode)][step] = it_per_sec
+        return it_per_sec
+
+
+    def calculate_benchmark(self, epoch, step, total_steps, loss):
+        """Calculates the benchmark values and prints status. 
+        """
+        prompt_str = ''
+        self.check_if_warm_up_stage(epoch, step)
+        it_per_sec = self.calculate_iterations_per_sec(epoch, step)
+        
+        return it_per_sec
+
+    def get_duration(self):
+        end_time = time.time()
+        if self.args.average_duration:
+            duration = torch.tensor(end_time - self.start_time).cuda()
+            duration = self.average_duration(duration).detach().item()
+        else:
+            duration = end_time - self.start_time
+        self.start_time = end_time
+        return duration
+    
+
+    def make_epoch_mean_it_per_sec_string(self, epoch):
+        """Calculates the mean iterations per second for training and/or evaluation for the last epoch and returns it
+        in the shape of a printable string.
+        """
+        mean_it_per_sec = self.calc_mean_it_per_sec(self.it_per_sec_dicts[int(self.eval_mode)])
+        self.it_per_sec_dicts[int(self.eval_mode)].clear()
+        self.mean_it_per_sec_dicts_per_epoch[int(self.eval_mode)][epoch] = mean_it_per_sec
+        return f'\nMean {self.args.iterations} per second in this {EVAL_MODE_DICT[int(self.eval_mode)]} epoch: {mean_it_per_sec}\n\n'
+
+
+    def make_final_mean_it_per_sec_string(self):
+        if self.mean_it_per_sec_dicts_per_epoch[0]:
+            final_mean_it_per_sec_string_train = f'\nTotal mean {self.args.iterations.lower()} per second in training: {self.calc_mean_it_per_sec(self.mean_it_per_sec_dicts_per_epoch[0])}'
+        elif self.it_per_sec_dicts[0]:
+            final_mean_it_per_sec_string_train = f'\nTotal mean {self.args.iterations.lower()} per second in training: {self.calc_mean_it_per_sec(self.it_per_sec_dicts[0])}'
+        else:
+            final_mean_it_per_sec_string_train = ''
+            
+        if self.mean_it_per_sec_dicts_per_epoch[1]:
+            final_mean_it_per_sec_string_eval = f'\nTotal mean {self.args.iterations.lower()} per second in evaluation: {self.calc_mean_it_per_sec(self.mean_it_per_sec_dicts_per_epoch[1])}'
+        elif self.it_per_sec_dicts[1]:
+            final_mean_it_per_sec_string_eval = f'\nTotal mean {self.args.iterations.lower()} per second in evaluation: {self.calc_mean_it_per_sec(self.it_per_sec_dicts[1])}'
+        else:
+            final_mean_it_per_sec_string_eval = '' 
+
+        return final_mean_it_per_sec_string_train + final_mean_it_per_sec_string_eval + '\n'
+
+    def calc_mean_it_per_sec(self, it_per_sec_dict):
+        if len(it_per_sec_dict):
+            mean_it_per_sec = round(np.array(list(it_per_sec_dict.values())).mean())
+        else:
+            mean_it_per_sec = 0
+        return mean_it_per_sec
+
+
+    def average_duration(self, duration):
+        """Calculates the average of the duration over all gpus.
+        """
+        dist.barrier()
+        dist.reduce(duration, 0, op=dist.ReduceOp.SUM)
+        duration /= self.args.num_gpus
+        return duration
+
+
+class Protocol(object):
+
+    def __init__(self, rank, args, model, data):
+        """Class for the protocol.
+        """
+        self.rank = rank
+        self.args = args 
+        self.model = model   
+        self.data = data
+        self.epoch = 1 
+        self.start_time = time.time()
+        self.epoch_start_time = self.start_time
+        self.total_evaluation_results = {}
+        self.benchmark = self.init_benchmark()
         self.gpu_info = self.init_gpu_info()
         self.info_text = self.make_info_text()
-        self.protocol = self.init_protocol()
-        self.warm_up_stage = True
+        self.log_file = self.init_logfile()
         self.eval_mode = False
-        self.correct_predictions = torch.tensor(0).cuda()
-        self.correct_predictions5 = torch.tensor(0).cuda()
-        self.total_predictions = torch.tensor(0).cuda()
-        self.epoch_mean_img_per_sec_dicts = [{},{}]
+        self.evaluation = None
 
-    def init_protocol(self):
+
+    def init_logfile(self):
         """Instantiates a Protocol object for GPU 0, if the flag --log_file is set.
         Returns the Protocol instance.
         """
         if self.rank == 0:
             if self.args.log_file:
-                protocol = Protocol(self.args, self.info_text)
+                log_file = Logfile(self.args, self.info_text)
             else:
-                protocol = None
+                log_file = None
         else:
-            protocol = None
-        return protocol
+            log_file = None
+        return log_file
+
+    def init_benchmark(self):
+        if not self.args.no_benchmark:
+            return Benchmark(self.rank, self.args)
+
 
     def init_gpu_info(self):
         """Instantiates a GpuInfo object, to measure GPU temps etc. if the flag --no_temp is not set.
@@ -141,6 +270,143 @@ class Benchmark(object):
         else:
             gpu_info = None
         return gpu_info
+
+    def start_epoch(self, epoch):
+        if self.rank == 0:
+            epoch_no_str = f'\nEpoch {epoch}\n'
+            print(epoch_no_str)
+            if self.args.log_file and self.args.log_benchmark:
+                self.log_file.prompt_str_epoch += epoch_no_str
+        self.epoch = epoch
+
+    def set_to_train_mode(self):
+        """Set the benchmark and the model to training mode.
+        """
+        self.eval_mode = False
+        self.benchmark.eval_mode = False
+        self.model.model.train()
+        if self.args.distributed:
+            self.data.train_sampler.set_epoch(self.epoch)
+
+
+    def set_to_eval_mode(self):
+        """Set the benchmark and the model to evaluation mode.
+        """
+        self.eval_mode = True
+        self.benchmark.eval_mode = True
+        self.model.model.eval()
+        self.evaluation = init_evaluation(self.rank, self.args, self.data)
+
+
+    def finish_epoch(self, rank, epoch, model=None):
+        """Prints infos and writes all epoch plots into the protocol file after each epoch.
+        """
+        prompt_str = ''
+        if self.eval_mode:
+            evaluation_results_per_epoch = self.evaluation.evaluate_epoch()
+
+        if self.rank == 0:
+            if self.gpu_info:
+                prompt_str += self.gpu_info.get_max_temperature_str()
+            if not self.eval_mode:
+                prompt_str += '\nTraining '
+                if not self.args.skip_checkpoint:
+                    model.save_checkpoint(epoch, self.args.data_name)
+            else:
+                for key, value in evaluation_results_per_epoch.items():
+                    prompt_str += f'\n{key}:{value:.4f}'
+                    
+                prompt_str+='\n\nEvaluation '
+                self.total_evaluation_results[epoch] = evaluation_results_per_epoch
+                
+                
+            prompt_str += f'epoch finished within {self.make_epoch_duration_string()}.\n'
+            if self.args.mean_it_per_sec:
+                prompt_str += self.benchmark.make_epoch_mean_it_per_sec_string(epoch)
+            print(prompt_str, end='')
+            
+            if self.args.log_file:
+                self.log_file.prompt_str_epoch += prompt_str
+                if self.args.log_benchmark:
+                    self.log_file.update_log_file()
+                self.log_file.prompt_str_epoch = ''
+                if self.eval_mode:
+                    self.log_file.update_csv_file(epoch, evaluation_results_per_epoch.values())
+        return True
+
+
+    def finish_benchmark(self):
+        """Writes benchmark results in a text file and calculates the mean.
+        Returns the mean iterations per sec.
+        """
+        if self.rank == 0:
+            if self.args.mean_it_per_sec:
+                mean_it_per_sec_str = self.benchmark.make_final_mean_it_per_sec_string()
+            else:
+                mean_it_per_sec_str = ''
+            if self.gpu_info:
+                max_temp_str = self.gpu_info.get_max_temperature_str()
+            else:
+                max_temp_str = ''
+            total_evaluation_results_str = ''
+            if self.total_evaluation_results:
+                for epoch, evaluation_results_per_epoch in self.total_evaluation_results.items():
+                    total_evaluation_results_str += f'\nEpoch {epoch}: '
+                    for key, value in evaluation_results_per_epoch.items():
+                        total_evaluation_results_str += f'{key}: {value}   '
+
+            now = datetime.now()
+            end_time = now.strftime('%Y/%m/%d %H:%M:%S')
+            final_str = mean_it_per_sec_str + max_temp_str + total_evaluation_results_str + f'\n\nBenchmark end: {end_time}\n'
+            if self.args.log_file:
+                self.log_file.finish_log_file(final_str)
+            print(final_str)
+        if self.args.distributed:
+            dist.destroy_process_group()
+
+        return True
+
+    def show_progress(self, rank, epoch, step, total_steps, loss=None):
+        if rank == 0:
+            if not self.args.no_benchmark and step != total_steps:
+                it_per_sec = self.benchmark.calculate_benchmark(epoch, step, total_steps, loss)
+            else:
+                it_per_sec= None
+            progress_prompt_str = self.make_progress_prompt_string(epoch, step, total_steps, loss, it_per_sec)
+
+            if self.gpu_info:
+                progress_prompt_str += self.gpu_info.get_gpu_info_str()
+
+            print(progress_prompt_str, end = '')
+            if self.args.log_file and self.args.log_benchmark:
+                self.log_file.prompt_str_epoch += progress_prompt_str
+
+
+    def make_progress_prompt_string(self, epoch, step, total_steps, loss=None, it_per_sec=None):
+        """Creates and returns the benchmark prompt string for given arguments.
+        """
+        progress_prompt_string = f'Epoch [{epoch} / {self.args.load_from_epoch + self.args.num_epochs}], Step [{step} / {total_steps}]'
+        if not self.eval_mode:
+            loss_item = loss.detach().item()
+            progress_prompt_string += f', Loss: {loss_item:.4f}'
+
+        if it_per_sec:
+            progress_prompt_string += f',  {self.args.iterations} per second: {it_per_sec:.1f}'
+        progress_prompt_string += '\n'
+        return progress_prompt_string
+
+
+    def cancel_procedure(self):
+        """Called in the case of KeyboardInterrupt.
+        Finishes the protocol, prints mean and temperature maxima and exits the program.
+        """
+        if self.rank == 0:
+            if self.args.log_file:
+                self.log_file.update_log_file()
+        self.finish_benchmark()
+        if self.rank == 0:
+            sys.exit('Cancelled by KeyboardInterrupt\n')
+
 
     def make_info_text(self):
         """Makes info text about the device, the OS and some parameters, 
@@ -165,21 +431,16 @@ class Benchmark(object):
             else:
                 optimizer = self.args.optimizer
 
-            if self.args.imagenet:
-                data_name = 'ImageNet\n'
-            elif self.args.train_folder:
-                data_name = self.args.train_folder + '\n'
-            elif self.args.val_folder:
-                data_name = self.args.val_folder + '\n'
-            else:
-                data_name = 'Random images\n'
+            """
             if self.args.distributed:
                 global_batch_size = self.args.batch_size * self.args.num_gpus
                 local_batch_size = self.args.batch_size
+                global_eval_batch_size = self.args.eval_batch_size * self.args.num_gpus
+                local_eval_batch_size = self.args.eval_batch_size
             else:
                 global_batch_size = self.args.batch_size
                 local_batch_size = int(self.args.batch_size / self.args.num_gpus)
-
+            """
             info_text = f'OS: {platform.uname().system}, {platform.uname().release}\n'\
                         f'Device-name: {platform.uname().node}\n'\
                         f'{self.args.num_gpus} GPU(s) used for benchmark:\n'
@@ -198,14 +459,16 @@ class Benchmark(object):
                          f'PyTorch-version: {torch.__version__}\n' \
                          f'CPU: {cpu_name}\n' \
                          f'Model: {self.args.model}\n' \
-                         f'Global batch size: {global_batch_size}\n' \
-                         f'Local batch size: {local_batch_size}\n' \
+                         f'Global train batch size: {self.args.global_batch_size}\n' \
+                         f'Local train batch size: {self.args.batch_size}\n' \
+                         f'Global evaluation batch size: {self.args.global_eval_batch_size}\n' \
+                         f'Local evaluation batch size: {self.args.eval_batch_size}\n' \
                          f'Distribution Mode: {dist_dict[self.args.distribution_mode]}\n' \
                          f'Process group backend: {self.args.process_group_backend}\n' \
                          f'Optimizer: {optimizer}\n' \
                          f'Precision: {"Automatic mixed precision" if self.args.auto_mixed_precision else self.args.precision}\n' \
                          f'Log file: {self.args.log_file}\n' \
-                         f'Training data: {data_name}' \
+                         f'Training data: {self.args.data_name}\n' \
                          f'Initial learning rate: {self.args.learning_rate}\n' \
                          f'Learning rate decay step: {self.args.step_lr}\n' \
                          f'Used data augmentation: {not self.args.no_augmentation}\n' \
@@ -217,256 +480,11 @@ class Benchmark(object):
             return info_text
         return None
 
-    def calculate_benchmark(self, rank, epoch, step, total_steps, loss):
-        """Calculates the benchmark values and prints status. 
-        """
-        prompt_str = ''
-        duration = self.get_duration()
-        if rank == 0:
-            self.check_if_warm_up_stage(epoch, step)
-            img_per_sec = self.calculate_images_per_sec(epoch, step, duration)
-            prompt_str += self.make_benchmark_prompt_string(epoch, step, total_steps, loss, img_per_sec)
-            if self.gpu_info:
-                gpu_temps = self.gpu_info.get_current_attributes_all_gpus()[0]
-                prompt_str += self.gpu_info.get_gpu_info_str()
-                self.gpu_temp_list.append(gpu_temps)
-            print(prompt_str, end = '')
-            if self.args.log_file:
-                if self.args.log_benchmark:
-                    self.protocol.prompt_str_epoch += prompt_str
-        return True
-
-    def finish_epoch(self, rank, epoch, total_steps, loss):
-        """Prints infos and writes all epoch plots into the protocol file after each epoch.
-        """
-        if self.eval_mode:
-            self.sum_up_predictions_of_all_gpus()
-            val_acc, val_acc5 = self.calculate_validation_accuracy()
-        if rank == 0:
-            prompt_str = self.make_benchmark_prompt_string(epoch, total_steps, total_steps, loss, None)
-            if self.gpu_info:
-                gpu_temps = self.gpu_info.get_current_attributes_all_gpus()[0]
-                self.gpu_temp_list.append(gpu_temps)
-                max_temp_list = self.get_list_of_max_temperatures_of_each_gpu()
-                self.gpu_temp_list.clear()
-                self.gpu_temp_list.append(max_temp_list)
-                prompt_str += self.gpu_info.get_gpu_info_str()
-            epoch_end_time = time.time()
-            epoch_duration = epoch_end_time - self.epoch_start_time
-            self.epoch_start_time = epoch_end_time
-            epoch_duration_str = Benchmark.make_epoch_duration_string(epoch_duration)
-            if not self.eval_mode:
-                prompt_str += '\nTraining '
-            else:
-                prompt_str += f'\nValidation accuracy: {val_acc:.4f}\nValidation accuracy top5: {val_acc5:.4f}\n\nEvaluation '
-                self.val_acc_dict[epoch] = val_acc
-                self.val_acc5_dict[epoch] = val_acc5
-                
-            prompt_str += f'epoch finished within {epoch_duration_str}.\n'
-            if self.args.mean_img_per_sec:
-                prompt_str += self.make_epoch_mean_img_per_sec_string(epoch)
-            print(prompt_str)
-            
-            if self.args.log_file:
-                self.protocol.prompt_str_epoch += prompt_str
-                self.protocol.update()
-                self.protocol.prompt_str_epoch = ''
-                if self.eval_mode:
-                    self.protocol.update_csv_file(epoch, val_acc, val_acc5)
-        return True
-
-
-    def finish_benchmark(self):
-        """Writes benchmark results in a text file and calculates the mean.
-        Returns the mean images per sec.
-        """
-        if self.args.mean_img_per_sec:
-            mean_img_per_sec_str = self.make_final_mean_img_per_sec_string()
-        else:
-            mean_img_per_sec_str = ''
-        if self.gpu_temp_list:
-            max_temp_str = self.get_max_temperature_str()
-        else:
-            max_temp_str = ''
-
-        if self.val_acc_dict:
-            val_acc_str = f'\nValidation accuracy:\n'
-            for key_epoch in self.val_acc_dict:
-                val_acc_str += f'    Epoch {key_epoch}: {self.val_acc_dict[key_epoch]:.4f}\n'
-        else:
-            val_acc_str = ''
-
-        if self.val_acc5_dict:
-            val_acc5_str = f'\nValidation accuracy top 5:\n'
-            for key_epoch in self.val_acc5_dict:
-                val_acc5_str += f'    Epoch {key_epoch}: {self.val_acc5_dict[key_epoch]:.4f}\n'
-        else:
-            val_acc5_str = ''
-
-        now = datetime.now()
-        end_time = now.strftime('%Y/%m/%d %H:%M:%S')
-        final_str = mean_img_per_sec_str + max_temp_str + val_acc_str + val_acc5_str + f'\nBenchmark end: {end_time}\n'
-        if self.args.log_file:
-            self.protocol.finish(final_str)
-        print(final_str)
-
-        return True
-
-    def check_if_warm_up_stage(self, epoch, step):
-        """Check if the process is still in warm up stage and sets the boolean 
-        variable self.warm_up_stage respectively. Returns self.warm_up_stage.
-        """
-        if step <= self.args.warm_up_steps:
-            self.warm_up_stage = True
-        else:
-            self.warm_up_stage = False
-        return self.warm_up_stage
-
-    def cancel_procedure(self):
-        """Called in the case of KeyboardInterrupt.
-        Finishes the protocol, prints mean and temperature maxima and exits the program.
-        """
-        if self.args.log_file:
-            self.protocol.update()
-        self.finish_benchmark()
-
-        if self.args.distributed:
-            dist.destroy_process_group()
- 
-        print('Cancelled by KeyboardInterrupt')
-        sys.exit(0)
-
-    def make_benchmark_prompt_string(self, epoch, step, total_steps, loss, img_per_sec):
-        """Creates and returns the benchmark prompt string for given arguments.
-        """
-        prompt_str = f'Epoch [{epoch} / {self.args.load_from_epoch + self.args.num_epochs}], Step [{step} / {total_steps}]'
-        try:
-            loss_item = loss.detach().item()
-            prompt_str += f', Loss: {loss_item:.4f}'
-        except AttributeError:
-            pass    
-        if img_per_sec:
-            prompt_str += f', Images per second: {img_per_sec:.1f}'
-        prompt_str += '\n'
-        return prompt_str
-
-    def calculate_images_per_sec(self, epoch, step, duration):
-        """Returns images per second for given arguments.
-        """
-        img_per_sec = self.args.batch_size * self.args.calc_every * self.args.num_gpus / duration
-        if self.args.parallel:
-            img_per_sec /= self.args.num_gpus
-        if self.args.mean_img_per_sec:
-            if not self.warm_up_stage:
-                if self.eval_mode:
-                    self.img_per_sec_dicts[1][step] = img_per_sec
-                else:
-                    self.img_per_sec_dicts[0][step] = img_per_sec
-
-        return img_per_sec
-
-    def get_list_of_max_temperatures_of_each_gpu(self):
-        """Returns a list containing the maximum temperatures of all gpus ordered by rank.
-        """
-        gpu_temp_array = np.array(self.gpu_temp_list).transpose()
-        return [max(gpu_temp_array[gpu_id]) for gpu_id in range(self.args.num_gpus)]
-
-    def get_max_temperature_str(self):
-        """Calculates the maximum temperature for each GPU and returns a string containing these infos.
-        """
-        max_temp_list = self.get_list_of_max_temperatures_of_each_gpu()
-        max_temp_str = f'\nMaximum temperature(s): '
-        for gpu_id, max_temp in enumerate(max_temp_list):
-            if not gpu_id == 0:
-                max_temp_str += '   ||  '
-            max_temp_str += f'GPU {gpu_id}: {max_temp} °C'
-        return max_temp_str
-
-    def get_duration(self):
-        end_time = time.time()
-        if self.args.average_duration:
-            duration = torch.tensor(end_time - self.start_time).cuda()
-            duration = self.average_duration(duration).detach().item()
-        else:
-            duration = end_time - self.start_time
-        self.start_time = end_time
-        return duration
-    
-    def set_to_train_mode(self, model):
-        """Set the benchmark and the model to training mode.
-        """
-        self.eval_mode = False
-        model.model.train()
-        return model
-
-    def set_to_eval_mode(self, model):
-        """Set the benchmark and the model to evaluation mode.
-        """
-        self.eval_mode = True
-        model.model.eval()
-        return model
-
-    def sum_up_predictions_of_all_gpus(self):
-        """Sums up the correct predictions and the total predictions of the evaluation on each gpu.
-        """
-        if self.args.distributed:
-            dist.barrier()
-            dist.reduce(self.correct_predictions, 0, op=dist.ReduceOp.SUM)
-            dist.reduce(self.correct_predictions5, 0, op=dist.ReduceOp.SUM)
-            dist.reduce(self.total_predictions, 0, op=dist.ReduceOp.SUM)
-
-    def calculate_validation_accuracy(self):
-        """Return the validation_accuracy.
-        """
-        val_acc = self.correct_predictions / self.total_predictions
-        val_acc5 = self.correct_predictions5 / self.total_predictions
-        self.correct_predictions.zero_()
-        self.correct_predictions5.zero_()
-        self.total_predictions.zero_()
-        return val_acc, val_acc5
-
-    def make_epoch_mean_img_per_sec_string(self, epoch):
-        """Calculates the mean images per second for training and/or evaluation for the last epoch and returns it
-        in the shape of a printable string.
-        """
-        mean_img_per_sec_str = f'\nMean images per second in this '
-        if not self.eval_mode:
-            mean_img_per_sec = self.calc_mean_img_per_sec(self.img_per_sec_dicts[0])
-            self.img_per_sec_dicts[0].clear()
-            mean_img_per_sec_str += f'training epoch: {mean_img_per_sec}\n'
-            self.epoch_mean_img_per_sec_dicts[0][epoch] = mean_img_per_sec
-        else:
-            mean_img_per_sec = self.calc_mean_img_per_sec(self.img_per_sec_dicts[1])
-            self.img_per_sec_dicts[1].clear()
-            mean_img_per_sec_str += f'evaluation epoch: {mean_img_per_sec}\n'
-            self.epoch_mean_img_per_sec_dicts[1][epoch] = mean_img_per_sec
-
-        return mean_img_per_sec_str
-
-    def make_final_mean_img_per_sec_string(self):
-        if self.epoch_mean_img_per_sec_dicts[0]:
-            final_mean_img_per_sec_train = self.calc_mean_img_per_sec(self.epoch_mean_img_per_sec_dicts[0])
-            final_mean_img_per_sec_eval = self.calc_mean_img_per_sec(self.epoch_mean_img_per_sec_dicts[1])           
-        else:
-            final_mean_img_per_sec_train = self.calc_mean_img_per_sec(self.img_per_sec_dicts[0])
-            final_mean_img_per_sec_eval = self.calc_mean_img_per_sec(self.img_per_sec_dicts[1])
-
-        final_mean_img_per_sec_string = f'\nTotal mean images per second in training: {final_mean_img_per_sec_train}\n' \
-                                        f'Total mean images per second in evaluation: {final_mean_img_per_sec_eval}\n'
-        return final_mean_img_per_sec_string
-
-    def calc_mean_img_per_sec(self, img_per_sec_dict):
-        if len(img_per_sec_dict):
-            mean_img_per_sec = round(np.array(list(img_per_sec_dict.values())).mean())
-        else:
-            mean_img_per_sec = 0
-        return mean_img_per_sec
-
-    @staticmethod
-    def make_epoch_duration_string(epoch_duration):
+    def make_epoch_duration_string(self):
         """Makes a duration string splitted in hours/minutes/seconds for
         given duration in seconds.
         """
+        epoch_duration = self.calculate_epoch_duration()
         epoch_duration_str = ''
         hours = epoch_duration // 3600
         minutes = epoch_duration % 3600 // 60
@@ -478,16 +496,14 @@ class Benchmark(object):
         epoch_duration_str += f'{seconds:.0f} seconds'
         return epoch_duration_str
 
-    def average_duration(self, duration):
-        """Calculates the average of the duration over all gpus.
-        """
-        dist.barrier()
-        dist.reduce(duration, 0, op=dist.ReduceOp.SUM)
-        duration /= self.args.num_gpus
-        return duration
+    def calculate_epoch_duration(self):
+        epoch_end_time = time.time()
+        epoch_duration = epoch_end_time - self.epoch_start_time
+        self.epoch_start_time = epoch_end_time
+        return epoch_duration
 
 
-class Protocol(object):
+class Logfile(object):
     """Initializes the Protocol.
     """
     def __init__(self, args, info_text):
@@ -495,6 +511,8 @@ class Protocol(object):
         self.log_file = self.init_log_file(info_text)
         self.init_csv_file()
         self.prompt_str_epoch = ''
+
+
 
     def init_log_file(self, info_text):
         """Initializes the log file and writes the info text into it.
@@ -513,7 +531,7 @@ class Protocol(object):
                 protocol.write(info_text)
         return log_file
 
-    def update(self):
+    def update_log_file(self):
         """Writes the all the prompts of the current epoch into the protocol file.
         """
         with open(self.log_file, 'a') as log_file:
@@ -527,18 +545,185 @@ class Protocol(object):
         else:
             with open(self.log_file.with_suffix('.csv'), 'a') as f:
                 writer = csv.writer(f)
-    def update_csv_file(self, epoch, val_acc, val_acc5):
+
+    def update_csv_file(self, epoch, evaluation_results_per_epoch):
         with open(self.log_file.with_suffix('.csv'), 'a') as f:
             writer = csv.writer(f)
-            writer.writerow((epoch, val_acc.item(), val_acc5.item()))
+            writer.writerow((epoch, *(result for result in evaluation_results_per_epoch)))
 
-    def finish(self, final_str):
-        """Writes given string with benchmark end results like mean images per second, maximum GPU temperatures 
+    def finish_log_file(self, final_str):
+        """Writes given string with benchmark end results like mean iterations per second, maximum GPU temperatures 
         and the validation accuracy from each epoch into the protocol file.
         """
         with open(self.log_file, 'a') as log_file:
             log_file.write(final_str)
         return True
+
+
+class EvaluationImageModel(object):
+    def __init__(self, rank, args):
+        self.rank = rank
+        self.args = args
+        self.correct_predictions = torch.tensor(0).to('cuda')
+        self.correct_predictions5 = torch.tensor(0).to('cuda')
+        self.total_predictions = torch.tensor(0).to('cuda')
+
+
+    def evaluate_step(self, predicted_label, label):
+        _, pred = torch.max(predicted_label.data, 1)
+        _, pred5 = predicted_label.topk(5, 1, True, True)
+        label_resize = label.view(-1,1)
+        self.total_predictions += label.size(0)
+        self.correct_predictions += (pred == label).sum()
+        self.correct_predictions5 += (pred5 == label_resize).sum()
+
+    def evaluate_epoch(self):
+        self.sum_up_predictions_of_all_gpus()
+        val_acc, val_acc5 = self.calculate_validation_accuracy()
+        return {'Validation accuracy': val_acc, 'Validation accuracy top5': val_acc5}
+
+    def sum_up_predictions_of_all_gpus(self):
+        """Sums up the correct predictions and the total predictions of the evaluation on each gpu.
+        """
+        if self.args.distributed:
+            dist.barrier()
+            dist.all_reduce(self.correct_predictions, op=dist.ReduceOp.SUM)
+            dist.all_reduce(self.correct_predictions5, op=dist.ReduceOp.SUM)
+            dist.all_reduce(self.total_predictions, op=dist.ReduceOp.SUM)
+
+    def calculate_validation_accuracy(self):
+        """Return the validation accuracy.
+        """
+        val_acc = self.correct_predictions / self.total_predictions
+        val_acc5 = self.correct_predictions5 / self.total_predictions
+
+        return round(val_acc.item(), 4), round(val_acc5.item(), 4)
+
+
+class EvaluationBert(object):
+    """Evaluation of BERT
+    """
+    def __init__(self, rank, args, data):
+        self.rank = rank
+        self.all_results = []
+        self.args = args
+        self.data = data
+        self.num_gpus = self.args.num_gpus
+
+
+    def evaluate_step(self, model_output, example_indices):
+        for i, example_index in enumerate(example_indices[0]):
+            if not self.args.synthetic_data:
+                eval_features = self.data.preprocessed_data.eval_features[example_index.item()]
+                unique_id = torch.tensor(eval_features.unique_id).to('cuda')
+            else:
+                unique_id = torch.randint(low=0, high=self.args.num_synth_data, size=[1], dtype=torch.long).to('cuda')
+            
+            start_logits = model_output[0][i].contiguous()
+            end_logits = model_output[1][i].contiguous()
+            all_gpu_unique_id = [torch.zeros_like(unique_id) for _ in
+                            range(self.num_gpus)]
+            all_gpu_start_logits = [torch.zeros_like(start_logits) for _ in
+                            range(self.num_gpus)]
+            all_gpu_end_logits = [torch.zeros_like(end_logits) for _ in
+                            range(self.num_gpus)]
+            
+            if self.args.distributed:
+                dist.all_gather(all_gpu_unique_id, unique_id)
+                dist.all_gather(all_gpu_start_logits, start_logits)
+                dist.all_gather(all_gpu_end_logits, end_logits)
+                if self.rank == 0:
+                    raw_result = namedtuple("RawResult",
+                        ["unique_id", "start_logits", "end_logits"])
+                    for i in range(self.num_gpus):
+                        unique_id = int(all_gpu_unique_id[i].detach())#.cpu())
+                        start_logits = all_gpu_start_logits[i].detach().tolist()#.cpu().tolist()
+                        end_logits = all_gpu_end_logits[i].detach().tolist()#cpu().tolist()
+                        self.all_results.append(raw_result(unique_id=unique_id, start_logits=start_logits, end_logits=end_logits))
+            else:
+                raw_result = namedtuple("RawResult",
+                        ["unique_id", "start_logits", "end_logits"])
+                self.all_results.append(raw_result(unique_id=unique_id.detach(), start_logits=start_logits.detach().tolist(), end_logits=end_logits.detach().tolist()))
+
+    def evaluate_epoch(self):
+        
+        if self.rank == 0:
+            answers, nbest_answers = self.data.preprocessed_data.get_answers(self.all_results)
+            with open(self.args.eval_data_file) as eval_data_file:
+                dataset_json = json.load(eval_data_file)
+            dataset = dataset_json['data']
+            self.all_results = []
+            return EvaluationBert.get_f1_and_exact_match(dataset, answers)
+
+
+    @staticmethod
+    def normalize_answer(s):
+        """Lower text and remove punctuation, articles and extra whitespace."""
+        def remove_articles(text):
+            return re.sub(r'\b(a|an|the)\b', ' ', text)
+
+        def white_space_fix(text):
+            return ' '.join(text.split())
+
+        def remove_punc(text):
+            exclude = set(string.punctuation)
+            return ''.join(ch for ch in text if ch not in exclude)
+
+        def lower(text):
+            return text.lower()
+
+        return white_space_fix(remove_articles(remove_punc(lower(s))))
+
+    @staticmethod
+    def f1_score(prediction, ground_truth):
+        prediction_tokens = EvaluationBert.normalize_answer(prediction).split()
+        ground_truth_tokens = EvaluationBert.normalize_answer(ground_truth).split()
+        common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
+        num_same = sum(common.values())
+        if num_same == 0:
+            return 0
+        precision = 1.0 * num_same / len(prediction_tokens)
+        recall = 1.0 * num_same / len(ground_truth_tokens)
+        f1 = (2 * precision * recall) / (precision + recall)
+        return f1
+
+    @staticmethod
+    def exact_match_score(prediction, ground_truth):
+        return (EvaluationBert.normalize_answer(prediction) == EvaluationBert.normalize_answer(ground_truth))
+
+    @staticmethod
+    def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
+        scores_for_ground_truths = []
+        for ground_truth in ground_truths:
+            score = metric_fn(prediction, ground_truth)
+            scores_for_ground_truths.append(score)
+        return max(scores_for_ground_truths)
+
+    @staticmethod
+    def get_f1_and_exact_match(dataset, predictions):
+        f1 = exact_match = total = 0
+        for article in dataset:
+            for paragraph in article['paragraphs']:
+                for qa in paragraph['qas']:
+                    total += 1
+                    if qa['id'] not in predictions:
+                        message = 'Unanswered question ' + qa['id'] + \
+                                ' will receive score 0.'
+                        #print(message, file=sys.stderr)
+                        continue
+                    ground_truths = list(map(lambda x: x['text'], qa['answers']))
+                    prediction = predictions[qa['id']]
+                    exact_match += EvaluationBert.metric_max_over_ground_truths(
+                        EvaluationBert.exact_match_score, prediction, ground_truths)
+                    f1 += EvaluationBert.metric_max_over_ground_truths(
+                        EvaluationBert.f1_score, prediction, ground_truths)
+
+        exact_match = 100.0 * exact_match / total
+        f1 = 100.0 * f1 / total
+
+        return {'exact_match': round(exact_match, 4), 'f1': round(f1, 4)}
+
+
 
 
 def run_live_plot_thread(num_gpus, refresh_interval=500):
@@ -554,3 +739,14 @@ def run_live_plot_thread(num_gpus, refresh_interval=500):
     thread.daemon = True
     thread.start()
     return thread
+
+
+
+def init_evaluation(rank, args, data):
+    if args.bert:
+        evaluation = EvaluationBert(rank, args, data)
+    else:
+        evaluation = EvaluationImageModel(rank, args)
+    return evaluation
+
+

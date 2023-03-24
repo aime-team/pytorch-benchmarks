@@ -30,22 +30,6 @@ class MultiGpuModel(torch.nn.Module):
         self.load_checkpoint()
         self.do_pytorch2_optimizations()
 
-    def get_model_from_torchvision(self):
-        """Loads model from torchvision to self.model and sets attributes.
-        """
-        try:
-            weights = self.get_weights()
-            
-            model = getattr(torchvision.models, self.args.model)(weights=weights)
-        except AttributeError:
-            if self.rank == 0:
-                print(
-                    f'There is no model with the name {self.args.model} in torchvision.\n'
-                    f'The following models are available for benchmark:\n'
-                    f'{torchvision.models.list_models()}'
-                    )
-            sys.exit(0)
-        return model
 
     def init_model(self):
         return self.get_model_from_torchvision().to(self.device)
@@ -216,8 +200,7 @@ class MultiGpuModel(torch.nn.Module):
     def set_seed(self):
             
         if self.args.seed:
-            random.seed(self.args.seed)
-            np.random.seed(self.args.seed)
+            #np.random.seed(self.args.seed)
             torch.manual_seed(self.args.seed)
 
     @staticmethod
@@ -342,19 +325,34 @@ class MultiGpuBertModel(MultiGpuModel):
         return loss
 
     def do_batch_processing(self, batch):
-        batch = tuple(t.to(self.device, non_blocking=self.args.pin_memory) for t in batch) 
+        batch = tuple(element.to(self.device, non_blocking=self.args.pin_memory) for element in batch) 
         model_input, model_target_output = batch[0:3], batch[3:5] 
         return model_input, model_target_output
 
-    def evaluate(self):
-        pass
-        
 
 class MultiGpuImageModel(MultiGpuModel):
     def __init__(self, rank, args):
         """Initialises the model and the training parameters.
         """
         super(MultiGpuImageModel, self).__init__(rank, args)
+
+    def get_model_from_torchvision(self):
+        """Loads model from torchvision to self.model and sets attributes.
+        """
+        try:
+            weights = self.get_weights()
+            
+            model = getattr(torchvision.models, self.args.model)(weights=weights)
+        except AttributeError:
+            if self.rank == 0:
+                print(
+                    f'There is no model with the name {self.args.model} in torchvision.\n'
+                    f'The following models are available for benchmark:\n'
+                    f'{torchvision.models.list_models()}'
+                    )
+            sys.exit(0)
+        return model
+
 
     def do_backpropagation(self, model_output, model_target_output):
         loss = self.criterion(model_output, model_target_output)
@@ -371,7 +369,6 @@ class MultiGpuImageModel(MultiGpuModel):
         model_input, label = batch
         return  (model_input,),  label
         
-
 
     def predict_label_for_single_picture(self):
         """Evaluates a single picture given in args.pred_pic_label, prints and returns the predicted label.

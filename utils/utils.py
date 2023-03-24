@@ -90,19 +90,24 @@ try:
         def get_list_of_max_temperatures_of_each_gpu(self):
             """Returns a list containing the maximum temperatures of all gpus ordered by rank.
             """
-            gpu_temp_array = np.array(self.gpu_temp_list).transpose()
-            return [max(gpu_temp_array[gpu_id]) for gpu_id in range(self.num_gpus)]
+            if self.gpu_temp_list:
+                gpu_temp_array = np.array(self.gpu_temp_list).transpose()
+                return [max(gpu_temp_array[gpu_id]) for gpu_id in range(self.num_gpus)]
 
         def get_max_temperature_str(self):
             """Calculates the maximum temperature for each GPU and returns a string containing these infos.
             """
             max_temp_list = self.get_list_of_max_temperatures_of_each_gpu()
-            max_temp_str = f'\nMaximum temperature(s): '
-            for gpu_id, max_temp in enumerate(max_temp_list):
-                if not gpu_id == 0:
-                    max_temp_str += '   ||  '
-                max_temp_str += f'GPU {gpu_id}: {max_temp} °C'
-            return max_temp_str
+            
+            if max_temp_list:
+                max_temp_str = f'\nMaximum temperature(s): '
+                for gpu_id, max_temp in enumerate(max_temp_list):
+                    if not gpu_id == 0:
+                        max_temp_str += '   ||  '
+                    max_temp_str += f'GPU {gpu_id}: {max_temp} °C'
+                return max_temp_str
+            else:
+                return ''
 
 except ModuleNotFoundError:
     pass
@@ -229,6 +234,7 @@ class Protocol(object):
         self.log_file = self.init_logfile()
         self.eval_mode = False
         self.evaluation = None
+        self.error_report = ''
 
 
     def init_logfile(self):
@@ -357,7 +363,7 @@ class Protocol(object):
 
             now = datetime.now()
             end_time = now.strftime('%Y/%m/%d %H:%M:%S')
-            final_str = mean_it_per_sec_str + max_temp_str + total_evaluation_results_str + f'\n\nBenchmark end: {end_time}\n'
+            final_str = mean_it_per_sec_str + max_temp_str + total_evaluation_results_str + self.error_report + f'\n\nBenchmark end: {end_time}\n'
             if self.args.log_file:
                 self.log_file.finish_log_file(final_str)
             print(final_str)
@@ -406,6 +412,15 @@ class Protocol(object):
         self.finish_benchmark()
         if self.rank == 0:
             sys.exit('Cancelled by KeyboardInterrupt\n')
+
+    def error_procedure(self, error_report):
+        self.error_report = '\n' + str(error_report)
+        if self.args.distributed:
+            if self.args.distributed:
+                dist.destroy_process_group()
+        else:
+            self.finish_benchmark()
+
 
 
     def make_info_text(self):

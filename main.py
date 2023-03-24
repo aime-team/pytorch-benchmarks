@@ -50,7 +50,9 @@ def run_training_process_on_given_gpu(rank, data):
 
     except KeyboardInterrupt:
         protocol.cancel_procedure()
-
+    except RuntimeError as error_report:
+        protocol.error_procedure(error_report)
+        
 
 def main():
     flags = Flags()
@@ -60,6 +62,7 @@ def main():
             _ = utils.run_live_plot_thread(args.num_gpus, args.refresh_interval)
 
         data = load_data(args)
+
         if args.pred_pic_label:
             model = init_multi_gpu_model(0, args)
             model.predict_label_for_single_picture()
@@ -78,3 +81,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

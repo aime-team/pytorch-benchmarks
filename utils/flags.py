@@ -103,10 +103,6 @@ class Flags():
             help='Plot mean images/sequences per second at the end and save it in the logfile'
                             )
         parser.add_argument(
-            '-s', '--set_seed', type=int, default=1234, required=False,
-            help='Set the random seed. Default: 1234'
-                            )
-        parser.add_argument(
             '-lr', '--learning_rate', type=float, default=1e-3, required=False,
             help='Set the learning rate for training. Default: 1e-3'
                             )
@@ -230,7 +226,6 @@ class Flags():
             '-pt2', '--compile', action='store_true', required=False,
             help='Do optimizations for Pytorch 2. Does not work with Pytorch 1. Default: False'
                             )
-
         parser.add_argument(
             '-dn', '--data_name', type=str, required=False, 
             help='Own name of dataset used for training/evaluation, if not ImageNet or Squad is used.'
@@ -313,7 +308,7 @@ class Flags():
                             )   
         parser.add_argument(
             '-se', '--seed', type=int, required=False, 
-            help='Random seed for initialization. Default: 1234'
+            help='Random seed for initialization.'
                             )
         parser.add_argument(
             '-nb', '--no_benchmark', action='store_true', required=False,
@@ -322,7 +317,12 @@ class Flags():
         parser.add_argument(
             '-up', '--find_unused_parameters', action='store_true', required=False, default=False,
             help='Enabling unused parameter detection by passing the keyword argument `find_unused_parameters=True` to `torch.nn.parallel.DistributedDataParallel`'
-                            )   
+                            )
+        parser.add_argument(
+            '-gmb', '--get_max_batchsize', action='store_true', required=False, default=False,
+            help='Getting the maximum possible batch_size for given model'
+                            )
+                        
         
 
         """                        
@@ -469,6 +469,10 @@ class Flags():
             self.args.iterations = 'Images' 
         if self.args.num_workers is None:
             self.args.num_workers = 4 * self.args.num_gpus
+        cpu_threads = os.cpu_count()
+        if self.args.num_workers >= cpu_threads:
+            self.args.num_workers = cpu_threads
+            print(f'Too much workers for the dataloader! Your cpu has only {cpu_threads} threads, so the number of workers was set to {cpu_threads}')
 
         if self.args.log_file is None:
             self.args.log_file = f'{self.args.num_gpus}_{str(torch.cuda.get_device_name(0)).replace(" ","").replace("/","")}'\

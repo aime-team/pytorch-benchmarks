@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import torch
-from random import Random
 import torchvision
 from torch.utils.data import (DataLoader, RandomSampler, TensorDataset)
 from torch.utils.data.distributed import DistributedSampler
@@ -33,47 +32,18 @@ class RandomDataset(torch.utils.data.Dataset):
         return self.data, label
 
 
-class Partition(object):
-    """ Dataset-like object, but only access a subset of it.
-    """
-    def __init__(self, data, index):
-        self.data = data
-        self.index = index
-
-    def __len__(self):
-        return len(self.index)
-
-    def __getitem__(self, index):
-        data_idx = self.index[index]
-        return self.data[data_idx]
-
-
-class DataPartitioner(object):
-    """ Partitions a dataset into different chunks.
-    """
-    def __init__(self, data, ratio=0.9, seed=1234):
-        self.data = data
-        self.partitions = []
-        rng = Random()
-        rng.seed(seed)
-        data_len = len(data)
-        indexes = [idx for idx in range(data_len)]
-        rng.shuffle(indexes)
-
-        for frac in [ratio, 1 - ratio]:
-            part_len = round(frac * data_len)
-            self.partitions.append(indexes[0:part_len])
-            indexes = indexes[part_len:]
-
-    def use(self, partition):
-        return Partition(self.data, self.partitions[partition])
-
 class MultiGpuData(object):
     def __init__(self, args):
         self.args = args
         self.total_steps_train = 0
         self.total_steps_eval = 0
         self.train_sampler = None
+        self.set_seed()
+
+    def set_seed(self):        
+        if self.args.seed:
+            np.random.seed(self.args.seed)
+            torch.manual_seed(self.args.seed)
         
 
     def init_distributed_dataloader(self, dataset, is_training):
@@ -101,8 +71,8 @@ class MultiGpuData(object):
                 sampler=sampler
                                                     )
         else:
-            dataloader = ''
-            sampler = ''
+            dataloader = None
+            sampler = None
 
         return dataloader, sampler
 
@@ -147,7 +117,6 @@ class MultiGpuImageData(MultiGpuData):
         else:
             eval_dataset = None
         if self.args.split_data != 1:
-            torch.manual_seed(self.args.set_seed)
             ratio_map = [
                 round(self.args.split_data * len(train_dataset)),
                 round((1 - self.args.split_data) * len(train_dataset))
@@ -185,7 +154,7 @@ class MultiGpuImageData(MultiGpuData):
                                                                     )
             elif not self.args.eval_only:
                 train_dataset = self.load_synthetic_dataset(is_training=True)
-            elif self.eval_only:
+            elif self.args.eval_only:
                 train_dataset = None
 
             if self.args.eval_image_folder:
@@ -194,7 +163,6 @@ class MultiGpuImageData(MultiGpuData):
                                                                )
 
             elif self.args.split_data != 1:
-                torch.manual_seed(self.args.set_seed)
                 ratio_map = [
                     round(self.args.split_data * len(train_dataset)), round((1 - self.args.split_data) * len(train_dataset))
                              ]
@@ -282,7 +250,6 @@ class MultiGpuBertData(MultiGpuData):
                 all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
                 dataset = TensorDataset(all_input_ids, all_segment_ids, all_input_mask, all_example_index)
             return dataset
-
 
     def load_train_dataset(self):
         if not self.args.eval_only:

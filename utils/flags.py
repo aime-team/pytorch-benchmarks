@@ -29,10 +29,7 @@ class Flags():
         parser = argparse.ArgumentParser(
             description='PyTorch Benchmarking', formatter_class=argparse.ArgumentDefaultsHelpFormatter
                                         )
-        parser.add_argument(
-            '-w',  '--warm_up_steps', type=int, default=10, required=False,
-            help="Number of warm up steps in every epoch. Warm up steps will not taken into account. Default: 10"
-                            )
+
         parser.add_argument(
             '-ne', '--num_epochs', type=int, default=10, required=False, help='Number of epochs. Default: 10'
                             )
@@ -56,7 +53,25 @@ class Flags():
             help='Choose the model. Default: resnet50'
                             )
         parser.add_argument(
-            '-f', '--use_fp16', action='store_true', required=False, help='Use half precision. If not given fp32 precision is used.'
+            '-pt2', '--compile', action='store_true', required=False,
+            help='Do optimizations for Pytorch 2. Does not work with Pytorch 1. Default: False'
+                            )
+        parser.add_argument(
+            '-ev', '--eval', action='store_true', required=False,
+            help='If given, the model is evaluated with the given validation dataset in --eval_image_folder or --eval_data_file'
+                'at the end of each epoch and prints the evaluation accuracy.'
+                            )
+        parser.add_argument(
+            '-eo', '--eval_only', action='store_true', required=False,
+            help='If given, the model is evaluated with the given validation dataset without any training.'
+                            )
+        parser.add_argument(
+            '-nw', '--num_workers', type=int, required=False,
+            help='Number of workers for the dataloader. If not given 4*num_gpus is used.'
+                            )
+        parser.add_argument(
+            '-amp', '--auto_mixed_precision', action='store_true', required=False,
+            help='Enable automatic mixed precision. Default: False'
                             )
         parser.add_argument(
             '-dp', '--parallel', action='store_true', required=False, help='Use DataParallel for Multi-GPU training instead of DistributedDataParallel. If not given, DistributedDataParallel is used.'
@@ -73,36 +88,6 @@ class Flags():
             help='Destination of the validation image dataset. If not given, synthetic data is used.'
                             )
         parser.add_argument(
-            '-nw', '--num_workers', type=int, required=False,
-            help='Number of workers for the dataloader. If not given 4*num_gpus is used.'
-                            )
-        parser.add_argument(
-            '-sd', '--split_data', type=float, default=1, required=False,
-            help='Splits the given training dataset in a training and evaluation dataset with the given ratio. Takes values between 0 and 1. Default: 1'
-                            )
-        parser.add_argument(
-            '-le', '--load_from_epoch', type=int, default=0, required=False,
-            help='Loads model state at given epoch of a saved checkpoint given in --checkpoint_folder. '
-                'If -1 is given, the highest available epoch for the model and the dataset is used.'
-                            )
-        parser.add_argument(
-            '-nt', '--no_temp', action='store_true', required=False,
-            help='Hide GPU infos like temperature etc. for better performance'
-                            )
-        parser.add_argument(
-            '-ev', '--eval', action='store_true', required=False,
-            help='If given, the model is evaluated with the given validation dataset in --eval_image_folder or --eval_data_file'
-                'at the end of each epoch and prints the evaluation accuracy.'
-                            )
-        parser.add_argument(
-            '-eo', '--eval_only', action='store_true', required=False,
-            help='If given, the model is evaluated with the given validation dataset without any training.'
-                            )
-        parser.add_argument(
-            '-mi', '--mean_it_per_sec', action='store_true', required=False,
-            help='Plot mean images/sequences per second at the end and save it in the logfile'
-                            )
-        parser.add_argument(
             '-lr', '--learning_rate', type=float, default=1e-3, required=False,
             help='Set the learning rate for training. Default: 1e-3'
                             )
@@ -117,6 +102,30 @@ class Flags():
         parser.add_argument(
             '-cl', '--constant_learning_rate', action='store_true', required=False,
             help='Train with a constant learning rate'
+                            )
+        parser.add_argument(
+            '-sd', '--split_data', type=float, default=1, required=False,
+            help='Splits the given training dataset in a training and evaluation dataset with the given ratio. Takes values between 0 and 1. Default: 1'
+                            )
+        parser.add_argument(
+            '-le', '--load_from_epoch', type=int, default=0, required=False,
+            help='Loads model state at given epoch of a saved checkpoint given in --checkpoint_folder. '
+                'If -1 is given, the highest available epoch for the model and the dataset is used.'
+                            )
+        parser.add_argument(
+            '-w',  '--warm_up_steps', type=int, default=10, required=False,
+            help="Number of warm up steps in every epoch. Warm up steps will not taken into account. Default: 10"
+                            )
+        parser.add_argument(
+            '-nt', '--no_temp', action='store_true', required=False,
+            help='Hide GPU infos like temperature etc. for better performance'
+                            )
+        parser.add_argument(
+            '-f', '--use_fp16', action='store_true', required=False, help='Use half precision. If not given fp32 precision is used.'
+                            )
+        parser.add_argument(
+            '-mi', '--mean_it_per_sec', action='store_true', required=False,
+            help='Plot mean images/sequences per second at the end and save it in the logfile'
                             )
         parser.add_argument(
             '-ce', '--calc_every', type=int, default=10, required=False,
@@ -211,20 +220,12 @@ class Flags():
             help='Load pretrained model from --checkpoint_file. Default: False.' 
                             )
         parser.add_argument(
-            '-amp', '--auto_mixed_precision', action='store_true', required=False,
-            help='Enable automatic mixed precision. Default: False'
-                            )
-        parser.add_argument(
             '-bt', '--benchmark_train', action='store_true', required=False,
             help='Start training for benchmark. Default: False'
                             )
         parser.add_argument(
             '-bts', '--benchmark_train_steps', type=int, default=60, required=False,
             help='Number of steps for --benchmark_train.'
-                            )
-        parser.add_argument(
-            '-pt2', '--compile', action='store_true', required=False,
-            help='Do optimizations for Pytorch 2. Does not work with Pytorch 1. Default: False'
                             )
         parser.add_argument(
             '-dn', '--data_name', type=str, required=False, 

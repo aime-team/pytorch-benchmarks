@@ -1,8 +1,18 @@
 # PyTorch-Benchmarks
 
-Tool to benchmark multi-GPU systems and to optimize multi-GPU training with PyTorch.  
+Benchmark tool for multiple models on multi-GPU setups. Compatible to CUDA (NVIDIA) and ROCm (AMD).
+
+
+## Models  
+Available and tested:
+- bert-large-cased, bert-large-uncased, bert-base-cased, base-base-uncased
+- resnet50, resnet101, resnet152  
+- vgg16, vgg19  
+- efficientnet_b0 - efficientnet_b5  
+- densenet121, densenet169, densenet201  
   
-        
+Pretrained versions are implemented for the models bert-large-cased, bert-large-uncased, bert-base-cased, base-base-uncased and resnet50. Use them by adding the flag --pretrained.
+
 ## Usage  
 
 A benchmark training on 1 GPU with the default training batch size of 64 using the default model `ResNet-50` with synthetic data is started with the following command:  
@@ -32,18 +42,21 @@ python3 main.py --num_gpus 4 --model bert-large-uncased --data_name squad --glob
 
 To use the with PyTorch 2 newly implemented feature `model = torch.compile(model)` simply add --compile to your comand:
 ```
-python3 main.py --compile
+python3 main.py --compile  
 ```
 
-## Models  
-Working models are:
-- resnet50, resnet101, resnet152  
-- bert-large-cased, bert-large-uncased, bert-base-cased, base-base-uncased
-- vgg16, vgg19  
-- efficientnet_b0 - efficientnet_b5  
-- densenet121, densenet169, densenet201  
-  
-Pretrained versions are implemented for the models resnet50, bert-large-cased, bert-large-uncased, bert-base-cased, base-base-uncased. Use them by adding the flag --pretrained.
+The default numerical precision is fp32. To use automatic mixed precision to get a performance boost, add the flag --automatic-mixed-precision.
+
+```
+python3 main.py --automatic-mixed-precision  
+```
+
+By default the module torch.nn.parallel.DistributedDataParallel is used for Multi GPU training. To use the module torch.nn.parallel.DataParallel add the flag --parallel
+
+```
+python3 main.py --parallel  
+```
+        
   
 ## Optional arguments:  
   

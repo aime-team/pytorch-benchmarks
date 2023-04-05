@@ -49,7 +49,7 @@ class MultiGpuData(object):
     def init_distributed_dataloader(self, dataset, is_training):
         """Initializes the dataloader with distributed sampling.
         """
-        if dataset: # TODO: check if dataset can be None?
+        if dataset:
             if self.args.distributed:
                 sampler = DistributedSampler(dataset)
                 if is_training:

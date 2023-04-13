@@ -323,6 +323,15 @@ class Flags():
             '-gmb', '--get_max_batchsize', action='store_true', required=False, default=False,
             help='Getting the maximum possible batch_size for given model'
                             )
+        parser.add_argument(
+            '-st', '--stress', action='store_true', required=False, default=False,
+            help='Stresstest with an infinite dataloader.'
+                            )
+        parser.add_argument(
+            '-cpu', '--use_cpu', action='store_true', required=False, default=False,
+            help='Use the cpu instead of gpu.'
+                            )
+
                         
         
 
@@ -518,6 +527,8 @@ class Flags():
         elif not self.args.train_data_file:
             self.args.synthetic_data = True
             self.args.data_name = 'Synthetic data'
+        #if self.args.stress:
+        #    self.args.num_synth_data = 10000000
     
 
 
@@ -538,6 +549,14 @@ class Flags():
             raise ValueError(f'Invalid gradient_accumulation_steps parameter: {self.args.gradient_accumulation_steps}, should be >= 1')
         else:
             self.args.batch_size = self.args.batch_size // self.args.gradient_accumulation_steps
+
+        if self.args.use_cpu:
+            self.args.device = 'cpu'
+            self.args.dtype = torch.bfloat16
+        else:
+            self.args.device = 'cuda'
+            self.args.dtype = torch.float16
+
 
     def set_precision_mode(self):
 

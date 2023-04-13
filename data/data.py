@@ -10,7 +10,6 @@ from PIL import Image
 from data.bert_data_preprocessing import BertDataPreprocessing
 
 
-
 class RandomDataset(torch.utils.data.Dataset):
     """Creates Random images.
     """
@@ -30,6 +29,23 @@ class RandomDataset(torch.utils.data.Dataset):
         if self.transform is not None:
             self.data = self.transform(self.data)
         return self.data, label
+
+
+class InfiniteDataLoader(DataLoader):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dataset_iterator = super().__iter__()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            batch = next(self.dataset_iterator)
+        except StopIteration:
+            self.dataset_iterator = super().__iter__()
+            batch = next(self.dataset_iterator)
+        return batch
 
 
 class MultiGpuData(object):
@@ -62,14 +78,24 @@ class MultiGpuData(object):
                     batch_size = self.args.global_batch_size
                 else:
                     batch_size = self.args.global_eval_batch_size
+            
+            if not self.args.stress:
+                dataloader = DataLoader(
+                    dataset=dataset,
+                    batch_size=batch_size,
+                    num_workers=self.args.num_workers,
+                    pin_memory=self.args.pin_memory,
+                    sampler=sampler
+                                        )
+            else:
+                dataloader = InfiniteDataLoader(
+                    dataset=dataset,
+                    batch_size=batch_size,
+                    num_workers=self.args.num_workers,
+                    pin_memory=self.args.pin_memory,
+                    sampler=sampler
+                                                )
 
-            dataloader = torch.utils.data.DataLoader(
-                dataset=dataset,
-                batch_size=batch_size,
-                num_workers=self.args.num_workers,
-                pin_memory=self.args.pin_memory,
-                sampler=sampler
-                                                    )
         else:
             dataloader = None
             sampler = None
@@ -81,7 +107,11 @@ class MultiGpuData(object):
         """
         if not self.args.eval_only:
             train_data_loader, self.train_sampler = self.init_distributed_dataloader(self.train_dataset, True)
-            self.total_steps_train = len(train_data_loader)
+            if not self.args.stress:
+                self.total_steps_train = len(train_data_loader)
+            else:
+                self.total_steps_train = np.inf
+
             return train_data_loader
 
     def get_eval_dataloader(self):
@@ -127,10 +157,9 @@ class MultiGpuImageData(MultiGpuData):
     def load_synthetic_dataset(self, is_training):
         mode_list = ['train', 'val']
         image_size = (3, 224, 224)
-        num_images = self.args.num_synth_data
         num_classes = 1000
         dataset = RandomDataset(
-            image_size, num_images, num_classes, transform=self.transforms[mode_list[int(is_training)]]
+            image_size, self.args.num_synth_data, num_classes, transform=self.transforms[mode_list[int(is_training)]]
                                         )
         return dataset
 

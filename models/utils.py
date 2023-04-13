@@ -6,7 +6,7 @@ import torch.distributed as dist
 import sys
 from utils.zero_redundancy_optimizer import ZeroRedundancyOptimizer
 from models.optimizer import BertAdam, Lamb
-
+import datetime
 
 class MultiGpuModel(torch.nn.Module):
     """Initialises model for multi gpu calculation.
@@ -16,7 +16,7 @@ class MultiGpuModel(torch.nn.Module):
         """
         super(MultiGpuModel, self).__init__()
         torch.cuda.set_device(rank)
-        self.device = torch.device("cuda", rank)
+        self.device = torch.device(args.device)
         self.rank = rank
         self.args = args
         self.model = self.init_model()
@@ -85,7 +85,7 @@ class MultiGpuModel(torch.nn.Module):
         """Initializes the loss function CrossEntropyLoss.
         """
         criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_index)
-        criterion.cuda(self.rank)
+        criterion.to(self.args.device)
         return criterion
 
     def set_precision_mode(self, precision):

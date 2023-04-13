@@ -118,6 +118,7 @@ class Benchmark(object):
         """Class for the benchmark.
         """
         self.args = args
+        self.args.device
         self.start_time = time.time()
         self.epoch_start_time = self.start_time
         self.rank = rank
@@ -151,7 +152,7 @@ class Benchmark(object):
         return it_per_sec
 
 
-    def calculate_benchmark(self, epoch, step, total_steps, loss):
+    def calculate_benchmark(self, epoch, step):
         """Calculates the benchmark values and prints status. 
         """
         prompt_str = ''
@@ -163,7 +164,7 @@ class Benchmark(object):
     def get_duration(self):
         end_time = time.time()
         if self.args.average_duration:
-            duration = torch.tensor(end_time - self.start_time).cuda()
+            duration = torch.tensor(end_time - self.start_time).to(self.args.device)
             duration = self.average_duration(duration).detach().item()
         else:
             duration = end_time - self.start_time
@@ -279,7 +280,7 @@ class Protocol(object):
 
     def start_epoch(self, epoch):
         if self.rank == 0:
-            epoch_no_str = f'\nEpoch {epoch}\n'
+            epoch_no_str = f'Epoch {epoch}\n'
             print(epoch_no_str)
             if self.args.log_file and self.args.log_benchmark:
                 self.log_file.prompt_str_epoch += epoch_no_str
@@ -367,6 +368,7 @@ class Protocol(object):
             if self.args.log_file:
                 self.log_file.finish_log_file(final_str)
             print(final_str)
+        #dist.barrier()
         if self.args.distributed:
             dist.destroy_process_group()
 
@@ -375,7 +377,7 @@ class Protocol(object):
     def show_progress(self, rank, epoch, step, total_steps, loss=None):
         if rank == 0:
             if not self.args.no_benchmark and step != total_steps:
-                it_per_sec = self.benchmark.calculate_benchmark(epoch, step, total_steps, loss)
+                it_per_sec = self.benchmark.calculate_benchmark(epoch, step)
             else:
                 it_per_sec= None
             progress_prompt_str = self.make_progress_prompt_string(epoch, step, total_steps, loss, it_per_sec)
@@ -413,14 +415,17 @@ class Protocol(object):
         if self.rank == 0:
             sys.exit('Cancelled by KeyboardInterrupt\n')
 
-    def error_procedure(self, error_report):
-        self.error_report = '\n' + str(error_report)
-        if self.args.distributed:
+    def error_procedure(self, local_error_report, queue):
+        if self.rank != 0:
+            queue.put(local_error_report)
+        if self.rank == 0:
+            time.sleep(0.5)
+            self.error_report = str(local_error_report)+'\n'
             if self.args.distributed:
-                dist.destroy_process_group()
-        else:
-            self.finish_benchmark()
+                if not queue.empty():
+                    self.error_report += str(queue.get())
 
+        self.finish_benchmark()
 
 
     def make_info_text(self):
@@ -446,22 +451,16 @@ class Protocol(object):
             else:
                 optimizer = self.args.optimizer
 
-            """
-            if self.args.distributed:
-                global_batch_size = self.args.batch_size * self.args.num_gpus
-                local_batch_size = self.args.batch_size
-                global_eval_batch_size = self.args.eval_batch_size * self.args.num_gpus
-                local_eval_batch_size = self.args.eval_batch_size
-            else:
-                global_batch_size = self.args.batch_size
-                local_batch_size = int(self.args.batch_size / self.args.num_gpus)
-            """
             info_text = f'OS: {platform.uname().system}, {platform.uname().release}\n'\
                         f'Device-name: {platform.uname().node}\n'\
-                        f'{self.args.num_gpus} GPU(s) used for benchmark:\n'
-            for gpu_id in range(self.args.num_gpus):
-                gpu_name = str(torch.cuda.get_device_name(gpu_id))
-                info_text += f'{gpu_id}: {gpu_name}\n'
+
+            if self.args.use_cpu:
+                info_text += f'CPU used for benchmark: {cpu_name}\n'
+            else:
+                info_text += f'{self.args.num_gpus} GPU(s) used for benchmark:\n'
+                for gpu_id in range(self.args.num_gpus):
+                    gpu_name = str(torch.cuda.get_device_name(gpu_id))
+                    info_text += f'{gpu_id}: {gpu_name}\n'
             if not self.args.no_temp:
                 try:
                     info_text += f'Nvidia GPU driver version: {GpuInfo.get_driver_version().decode()}\n'
@@ -490,8 +489,8 @@ class Protocol(object):
                          f'Checkpoint folder: {self.args.checkpoint_folder}\n' \
                          f'Number of workers: {self.args.num_workers}\n' \
                          f'Warm up steps: {self.args.warm_up_steps}\n' \
-                         f'Benchmark start : {start_time}\n'
-            print(info_text)
+                         f'Benchmark start : {start_time}\n\n'
+            print(info_text, end='')
             return info_text
         return None
 
@@ -579,9 +578,10 @@ class EvaluationImageModel(object):
     def __init__(self, rank, args):
         self.rank = rank
         self.args = args
-        self.correct_predictions = torch.tensor(0).to('cuda')
-        self.correct_predictions5 = torch.tensor(0).to('cuda')
-        self.total_predictions = torch.tensor(0).to('cuda')
+        torch.cuda.set_device(rank)
+        self.correct_predictions = torch.tensor(0).to(args.device)
+        self.correct_predictions5 = torch.tensor(0).to(args.device)
+        self.total_predictions = torch.tensor(0).to(args.device)
 
 
     def evaluate_step(self, predicted_label, label):
@@ -630,9 +630,9 @@ class EvaluationBert(object):
         for i, example_index in enumerate(example_indices[0]):
             if not self.args.synthetic_data:
                 eval_features = self.data.preprocessed_data.eval_features[example_index.item()]
-                unique_id = torch.tensor(eval_features.unique_id).to('cuda')
+                unique_id = torch.tensor(eval_features.unique_id).to(args.device)
             else:
-                unique_id = torch.randint(low=0, high=self.args.num_synth_data, size=[1], dtype=torch.long).to('cuda')
+                unique_id = torch.randint(low=0, high=self.args.num_synth_data, size=[1], dtype=torch.long).to(args.device)
             
             start_logits = model_output[0][i].contiguous()
             end_logits = model_output[1][i].contiguous()

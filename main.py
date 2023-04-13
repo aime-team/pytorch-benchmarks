@@ -9,16 +9,16 @@ import utils.utils as utils
 from utils.flags import Flags
 
 
-def run_training_process_on_given_gpu(rank, data):
+def run_training_process_on_given_gpu(rank, data, queue):
     """Run training/evaluation on given gpu id (rank).
     """
-    args = data.args
-    model = init_multi_gpu_model(rank, args)
-    protocol = utils.Protocol(rank, args, model, data)
-    train_dataloader = data.get_train_dataloader()
-    eval_dataloader = data.get_eval_dataloader()
-    
     try:
+        args = data.args
+        model = init_multi_gpu_model(rank, args)
+        protocol = utils.Protocol(rank, args, model, data)
+        train_dataloader = data.get_train_dataloader()
+        eval_dataloader = data.get_eval_dataloader()
+    
         for epoch in range(1 + args.load_from_epoch, 1 + args.load_from_epoch + args.num_epochs):
             protocol.start_epoch(epoch)                  
             if not args.eval_only:
@@ -26,11 +26,12 @@ def run_training_process_on_given_gpu(rank, data):
                 for step, batch in enumerate(train_dataloader, 1):
                     model_input, model_target_output = model.do_batch_processing(batch)
                     model.optimizer.zero_grad()
-                    with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.auto_mixed_precision):
+                    with torch.autocast(device_type=args.device, dtype=args.dtype, enabled=args.auto_mixed_precision):
                         model_output = model(*model_input)
                         loss = model.do_backpropagation(model_output, model_target_output)
                         
                     if step % args.calc_every == 0 or step == data.total_steps_train:
+
                         protocol.show_progress(rank, epoch, step, data.total_steps_train, loss)
                 protocol.finish_epoch(rank, epoch, model)
 
@@ -40,7 +41,7 @@ def run_training_process_on_given_gpu(rank, data):
                 with torch.no_grad():
                     for step, batch in enumerate(eval_dataloader, 1):
                         model_input, model_target_output = model.do_batch_processing(batch)
-                        with torch.autocast(device_type='cuda', dtype=torch.float16, enabled=args.auto_mixed_precision):
+                        with torch.autocast(device_type=args.device, dtype=args.dtype, enabled=args.auto_mixed_precision):
                             model_output = model(*model_input)
                         protocol.evaluation.evaluate_step(model_output, model_target_output)
                         if step % args.calc_every == 0 or step == data.total_steps_eval:
@@ -50,8 +51,9 @@ def run_training_process_on_given_gpu(rank, data):
 
     except KeyboardInterrupt:
         protocol.cancel_procedure()
-    except RuntimeError as error_report:
-        protocol.error_procedure(error_report)
+    except RuntimeError as local_error_report:
+        protocol.error_procedure(local_error_report, queue)
+
         
 
 def main():
@@ -68,14 +70,14 @@ def main():
             model.predict_label_for_single_picture()
 
         elif args.distributed:
+            queue = torch.multiprocessing.get_context('spawn').Queue()
             torch.multiprocessing.spawn(
-            run_training_process_on_given_gpu, args=(data, ), nprocs=args.num_gpus, join=True
+            run_training_process_on_given_gpu, args=(data, queue), nprocs=args.num_gpus, join=True
                                         )
         else:
-            run_training_process_on_given_gpu(0, data)
+            run_training_process_on_given_gpu(0, data, None)
     except KeyboardInterrupt:
         pass
-
 
 
 

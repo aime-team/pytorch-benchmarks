@@ -45,10 +45,10 @@ To use the with PyTorch 2 newly implemented feature `model = torch.compile(model
 python3 main.py --compile  
 ```
 
-The default numerical precision is fp32. To use automatic mixed precision (AMP) to get a performance boost, add the flag -amp.
+The default numerical precision is fp32. To use automatic mixed precision to get a performance boost, add the flag --automatic-mixed-precision.
 
 ```
-python3 main.py -amp
+python3 main.py --automatic-mixed-precision  
 ```
 
 By default the module torch.nn.parallel.DistributedDataParallel is used for Multi GPU training. To use the module torch.nn.parallel.DataParallel add the flag --parallel

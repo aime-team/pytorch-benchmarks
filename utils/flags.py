@@ -320,16 +320,12 @@ class Flags():
             help='Enabling unused parameter detection by passing the keyword argument `find_unused_parameters=True` to `torch.nn.parallel.DistributedDataParallel`'
                             )
         parser.add_argument(
-            '-gmb', '--get_max_batchsize', action='store_true', required=False, default=False,
-            help='Getting the maximum possible batch_size for given model'
-                            )
-        parser.add_argument(
             '-st', '--stress', action='store_true', required=False, default=False,
             help='Stresstest with an infinite dataloader.'
                             )
         parser.add_argument(
             '-cpu', '--use_cpu', action='store_true', required=False, default=False,
-            help='Use the cpu instead of gpu.'
+            help='Use the cpu instead of gpus.'
                             )
 
                         

@@ -45,10 +45,10 @@ To use the with PyTorch 2 newly implemented feature `model = torch.compile(model
 python3 main.py --compile  
 ```
 
-The default numerical precision is fp32. To use automatic mixed precision to get a performance boost, add the flag --automatic-mixed-precision.
+The default numerical precision is fp32. To use automatic mixed precision (amp) to get a performance boost, add the flag -amp.
 
 ```
-python3 main.py --automatic-mixed-precision  
+python3 main.py -amp  
 ```
 
 By default the module torch.nn.parallel.DistributedDataParallel is used for Multi GPU training. To use the module torch.nn.parallel.DataParallel add the flag --parallel
@@ -127,9 +127,11 @@ python3 main.py --parallel
   **-vf, --vocab_file** : For BERT: Vocabulary mapping/file BERT was pretrainined on.  
   **-sc, --skip_checkpoint** : Whether to save checkpoints  
   **-sca, --skip_cache** : For BERT: Whether to cache train/evaluation features  
-  **-ctf, --cached_train_features_file** : For BERT: Location to cache train feaures. Will default to the dataset directory  
-  **-cef, --cached_eval_features_file** : For BERT: Location to cache evaluation feaures. Will default to the dataset directory  
+  **-ctf, --cached_train_features_file** : For BERT: Location to cache train feaures. Will default to the dataset directory.  
+  **-cef, --cached_eval_features_file** : For BERT: Location to cache evaluation feaures. Will default to the dataset directory.  
   **-rnc, --renew_cache** : For BERT: Rebuild cache file of training/evaluation data.  
   **-se, --seed** : Random seed for initialization. Default : 1234  
-  **-nb, --no_benchmark** : Don't do benchmark calculations  
-  **-up, --find_unused_parameters** : Enabling unused parameter detection by passing the keyword argument "find_unused_parameters=True" to `torch.nn.parallel.DistributedDataParallel  
+  **-nb, --no_benchmark** : Don't do benchmark calculations.  
+  **-up, --find_unused_parameters** : Enabling unused parameter detection by passing the keyword argument "find_unused_parameters=True" to `torch.nn.parallel.DistributedDataParallel.  
+  **-st, --stress** : Stresstest with an infinite dataloader.  
+  **-cpu, --use_cpu** : Use the cpu instead of gpus.  

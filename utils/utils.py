@@ -481,6 +481,7 @@ class Protocol(object):
                          f'Process group backend: {self.args.process_group_backend}\n' \
                          f'Optimizer: {optimizer}\n' \
                          f'Precision: {"Automatic mixed precision" if self.args.auto_mixed_precision else self.args.precision}\n' \
+                         f'Compile-Mode: {self.args.compile}\n' \
                          f'Log file: {self.args.log_file}\n' \
                          f'Training data: {self.args.data_name}\n' \
                          f'Initial learning rate: {self.args.learning_rate}\n' \

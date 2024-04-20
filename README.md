@@ -2,6 +2,10 @@
 
 Benchmark tool for multiple models on multi-GPU setups. Compatible to CUDA (NVIDIA) and ROCm (AMD).
 
+Pytorch benchmarks for current GPUs meassured with this scripts are available here:
+
+[PyTorch 2 GPU Performance Benchmarks](https://www.aime.info/blog/de/pytorch-2-gpu-performance/)
+
 
 ## Models  
 Available and tested:

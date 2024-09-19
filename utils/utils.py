@@ -15,6 +15,7 @@ import csv
 from collections import Counter, namedtuple
 import json
 import re
+import string
 
 EVAL_MODE_DICT = {True: 'evaluation', False: 'training'}
 
@@ -37,7 +38,12 @@ try:
         def get_driver_version():
             """Returns the installed nvidia driver version.
             """
-            return nvidia_smi.nvmlSystemGetDriverVersion()
+            version = nvidia_smi.nvmlSystemGetDriverVersion()
+            try:
+                version = version.decode()
+            except AttributeError:
+                pass
+            return version
 
         def get_current_attributes_all_gpus(self):
             """Returns tuple with list gpu attributes for all gpus.
@@ -67,7 +73,11 @@ try:
             handle = nvidia_smi.nvmlDeviceGetHandleByIndex(gpu_id)
 
             gpu_temp = nvidia_smi.nvmlDeviceGetTemperature(handle, 0)
-            fan_speed = nvidia_smi.nvmlDeviceGetFanSpeed(handle)
+            try:
+                fan_speed = nvidia_smi.nvmlDeviceGetFanSpeed(handle)
+            except nvidia_smi.NVMLError:
+                fan_speed = 0
+
             gpu_usage = nvidia_smi.nvmlDeviceGetUtilizationRates(handle).gpu
             memory_info = nvidia_smi.nvmlDeviceGetMemoryInfo(handle)
             memory_usage = memory_info.used, memory_info.total
@@ -463,7 +473,7 @@ class Protocol(object):
                     info_text += f'{gpu_id}: {gpu_name}\n'
             if not self.args.no_temp:
                 try:
-                    info_text += f'Nvidia GPU driver version: {GpuInfo.get_driver_version().decode()}\n'
+                    info_text += f'Nvidia GPU driver version: {GpuInfo.get_driver_version()}\n'
                 except NameError:
                     pass
             info_text += f'Available GPUs on device: {torch.cuda.device_count()}\n' \
@@ -631,9 +641,9 @@ class EvaluationBert(object):
         for i, example_index in enumerate(example_indices[0]):
             if not self.args.synthetic_data:
                 eval_features = self.data.preprocessed_data.eval_features[example_index.item()]
-                unique_id = torch.tensor(eval_features.unique_id).to(args.device)
+                unique_id = torch.tensor(eval_features.unique_id).to(self.args.device)
             else:
-                unique_id = torch.randint(low=0, high=self.args.num_synth_data, size=[1], dtype=torch.long).to(args.device)
+                unique_id = torch.randint(low=0, high=self.args.num_synth_data, size=[1], dtype=torch.long).to(self.args.device)
             
             start_logits = model_output[0][i].contiguous()
             end_logits = model_output[1][i].contiguous()

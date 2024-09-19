@@ -387,8 +387,6 @@ class Flags():
                         }
             if not self.args.vocab_file:
                 self.args.vocab_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_base' / 'bert_base_uncased_vocab.txt'
-            if not self.args.checkpoint_file:
-                self.args.checkpoint_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_base' / 'bert_base_uncased.pt'
 
         elif self.args.model == 'bert-large-uncased':
             self.args.bert = True
@@ -408,8 +406,6 @@ class Flags():
                         }
             if not self.args.vocab_file:
                 self.args.vocab_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_large' / 'bert_large_uncased_vocab.txt'
-            if not self.args.checkpoint_file:
-                self.args.checkpoint_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_large' / 'bert_large_uncased.pt'
 
         elif self.args.model == 'bert-base-cased':
             self.args.bert = True
@@ -429,8 +425,6 @@ class Flags():
                                     }
             if not self.args.vocab_file:
                 self.args.vocab_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_base' / 'bert_base_cased_vocab.txt'
-            if not self.args.checkpoint_file:
-                self.args.checkpoint_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_base' / 'bert_base_cased.pt'
 
         elif self.args.model == 'bert-large-cased':
             self.args.bert = True
@@ -456,8 +450,6 @@ class Flags():
                                     }
             if not self.args.vocab_file:
                 self.args.vocab_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_large' / 'bert_large_cased_vocab.txt'
-            if not self.args.checkpoint_file:
-                self.args.checkpoint_file = Path(__file__).absolute().parent.parent / 'data'/ 'bert_large' / 'bert_large_cased.pt'
         else:
             self.args.bert = False
 
@@ -489,6 +481,9 @@ class Flags():
 
         if (self.args.eval and not (self.args.split_data != 1 or self.args.eval_image_folder)) and not self.args.imagenet:
             self.args.split_data = 0.9
+
+        self.set_data_name_and_type()
+
         if self.args.load_from_epoch == -1:
             self.args.load_from_epoch = MultiGpuModel.check_saved_checkpoint_epoch(self.args.model, self.args.data_name, self.args.checkpoint_folder)
         if self.args.checkpoint_folder:
@@ -526,10 +521,6 @@ class Flags():
         #if self.args.stress:
         #    self.args.num_synth_data = 10000000
     
-
-
-
-
         if self.args.bert and self.args.train_data_file:        
             if self.args.cached_train_features_file is None:
                 self.args.cached_train_features_file = self.args.train_data_file.parent / 'cache' / f'{self.args.train_data_file.stem}_{self.args.model}_{self.args.max_seq_length}_{self.args.doc_stride}_{self.args.max_query_length}.json'
@@ -552,6 +543,37 @@ class Flags():
         else:
             self.args.device = 'cuda'
             self.args.dtype = torch.float16
+
+
+    def set_data_name_and_type(self):
+        if self.args.imagenet:
+            self.args.data_name  = 'ImageNet'
+        elif self.args.train_image_folder:
+            data_name_list = self.args.train_image_folder.strip('/').split('/')
+            self.args.data_name  = f'{data_name_list[-2]}_{data_name_list[-1]}'
+
+        elif self.args.data_name and self.args.data_name.lower() == 'squad':
+            self.args.data_name = 'SQuAD'
+
+        if self.args.train_data_file:
+            self.args.train_data_file = Path(self.args.train_data_file)
+            self.args.data_name = 'custom_data'
+        elif self.args.bert:
+            self.args.train_data_file = Path(__file__).absolute().parent.parent / 'data' / 'squad' / 'train_squad.json'
+            self.args.data_name = 'SQuAD'
+        else:
+            self.args.synthetic_data = True
+            self.args.data_name = 'Synthetic data'
+
+        if self.args.eval_data_file:
+            self.args.eval_data_file = Path(self.args.eval_data_file)
+            self.args.data_name = 'custom_data'
+        elif self.args.bert:
+            self.args.eval_data_file = Path(__file__).absolute().parent.parent / 'data' / 'squad' / 'eval_squad.json'
+            self.args.data_name = 'SQuAD'
+        else:
+            self.args.synthetic_data = True
+            self.args.data_name = 'Synthetic data'
 
 
     def set_precision_mode(self):

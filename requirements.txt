@@ -3,3 +3,4 @@ torchvision
 numpy
 matplotlib
 nvidia-ml-py3 
+pytest

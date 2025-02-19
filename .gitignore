@@ -1,4 +1,5 @@
 !.gitignore
+/.idea/
 
 *.txt
 !requirements.txt
@@ -11,6 +12,7 @@ test.py
 /utils/__pycache__/
 /models/__pycache__/
 /tests/__pycache__/
+/tests/utils/__pycache__/
 /log/
 *.pt
 !/data/bert_base/bert_base_cased_vocab.txt

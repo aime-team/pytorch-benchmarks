@@ -19,6 +19,12 @@ import string
 
 EVAL_MODE_DICT = {True: 'evaluation', False: 'training'}
 
+
+def dt_now_to_str():
+    """Converts datetime to a string with only 100s of seconds"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f%z")[:-4]
+
+
 try:
     import nvidia_smi
 
@@ -351,30 +357,35 @@ class Protocol(object):
                     self.log_file.update_csv_file(epoch, evaluation_results_per_epoch.values())
         return True
 
+    def finish_string(self) -> str:
+        """
+        Creates a string with the finished benchmark results.
+        Returns this final string.
+        """
+        if self.args.mean_it_per_sec:
+            mean_it_per_sec_str = self.benchmark.make_final_mean_it_per_sec_string()
+        else:
+            mean_it_per_sec_str = ''
+        if self.gpu_info:
+            max_temp_str = self.gpu_info.get_max_temperature_str()
+        else:
+            max_temp_str = ''
+        total_evaluation_results_str = ''
+        if self.total_evaluation_results:
+            for epoch, evaluation_results_per_epoch in self.total_evaluation_results.items():
+                total_evaluation_results_str += f'\nEpoch {epoch}: '
+                for key, value in evaluation_results_per_epoch.items():
+                    total_evaluation_results_str += f'{key}: {value}   '
+
+        end_time = dt_now_to_str()
+        final_str = mean_it_per_sec_str + max_temp_str + total_evaluation_results_str + self.error_report + f'\n\nBenchmark end: {end_time}\n'
+
+        return final_str
 
     def finish_benchmark(self):
-        """Writes benchmark results in a text file and calculates the mean.
-        Returns the mean iterations per sec.
-        """
+        """Writes final benchmark results to a file"""
         if self.rank == 0:
-            if self.args.mean_it_per_sec:
-                mean_it_per_sec_str = self.benchmark.make_final_mean_it_per_sec_string()
-            else:
-                mean_it_per_sec_str = ''
-            if self.gpu_info:
-                max_temp_str = self.gpu_info.get_max_temperature_str()
-            else:
-                max_temp_str = ''
-            total_evaluation_results_str = ''
-            if self.total_evaluation_results:
-                for epoch, evaluation_results_per_epoch in self.total_evaluation_results.items():
-                    total_evaluation_results_str += f'\nEpoch {epoch}: '
-                    for key, value in evaluation_results_per_epoch.items():
-                        total_evaluation_results_str += f'{key}: {value}   '
-
-            now = datetime.now()
-            end_time = now.strftime('%Y/%m/%d %H:%M:%S')
-            final_str = mean_it_per_sec_str + max_temp_str + total_evaluation_results_str + self.error_report + f'\n\nBenchmark end: {end_time}\n'
+            final_str = self.finish_string()
             if self.args.log_file:
                 self.log_file.finish_log_file(final_str)
             print(final_str)
@@ -403,13 +414,14 @@ class Protocol(object):
     def make_progress_prompt_string(self, epoch, step, total_steps, loss=None, it_per_sec=None):
         """Creates and returns the benchmark prompt string for given arguments.
         """
-        progress_prompt_string = f'Epoch [{epoch} / {self.args.load_from_epoch + self.args.num_epochs}], Step [{step} / {total_steps}]'
+        now_str = dt_now_to_str()
+        progress_prompt_string = f'{now_str} Epoch {epoch}/{self.args.load_from_epoch + self.args.num_epochs}, Step {step}/{total_steps}'
         if not self.eval_mode:
             loss_item = loss.detach().item()
             progress_prompt_string += f', Loss: {loss_item:.4f}'
 
         if it_per_sec:
-            progress_prompt_string += f',  {self.args.iterations} per second: {it_per_sec:.1f}'
+            progress_prompt_string += f', {it_per_sec:.1f} {self.args.iterations}/sec'
         progress_prompt_string += '\n'
         return progress_prompt_string
 
@@ -443,7 +455,7 @@ class Protocol(object):
         shown at the beginning of the benchmark and in the protocol.
         """
         if self.rank == 0:
-            start_time = datetime.now().strftime('%Y/%m/%d %H:%M:%S')
+            start_time = dt_now_to_str()
             cpu_name = 'unknown'
             for line in subprocess.check_output("lscpu", shell=True).strip().decode().split('\n'):
                 if 'Modellname' in line or 'Model name' in line:

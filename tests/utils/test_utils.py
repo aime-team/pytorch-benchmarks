@@ -2,7 +2,7 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 import pytest
-from utils.utils import Protocol
+from utils.utils import Protocol, dt_now_to_str
 
 
 @pytest.fixture
@@ -19,6 +19,30 @@ def protocol_fixture():
     return Protocol(rank, args, model, data)
 
 
+@pytest.mark.parametrize(
+    "input_time,expected",
+    [
+        ((2020, 3, 13, 10, 22, 7), "2020-03-13 10:22:07.00"),
+        ((2025, 2, 19, 16, 55, 3, 708629), "2025-02-19 16:55:03.70"),
+        ((2025, 2, 19, 16, 55, 3, 700000), "2025-02-19 16:55:03.70"),
+        ((2030, 1, 1), "2030-01-01 00:00:00.00")
+    ]
+)
+def test_dt_now_to_str(input_time, expected):
+    """Tests dt_now_to_str with different input times"""
+
+    # Arrange
+    mocked_datetime = Mock()
+    mocked_datetime.now.configure_mock(return_value=datetime(*input_time))
+
+    # Act
+    with patch("utils.utils.datetime", mocked_datetime):
+        actual = dt_now_to_str()
+
+    # Assert
+    assert actual == expected
+
+
 class TestProtocolMakeProgressPromptString:
     """
     Tests Protocol's class make_progress_prompt_string method.
@@ -26,6 +50,9 @@ class TestProtocolMakeProgressPromptString:
     def test_base(self, protocol_fixture):
         """Basic Test"""
         # Arrange
+        mocked_dt_now_str = Mock()
+        mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
+
         epoch = 1
         step = 2
         total_steps = 3500
@@ -35,17 +62,21 @@ class TestProtocolMakeProgressPromptString:
         protocol_fixture.args.num_epochs = 5
 
         # Act
-        result = protocol_fixture.make_progress_prompt_string(
-            epoch, step, total_steps, it_per_sec=it_per_sec
-        )
+        with patch("utils.utils.dt_now_to_str", mocked_dt_now_str):
+            result = protocol_fixture.make_progress_prompt_string(
+                epoch, step, total_steps, it_per_sec=it_per_sec
+            )
 
         # Assert
-        expected = "Epoch [1 / 5], Step [2 / 3500],  Dummy_Images per second: 325.7\n"
+        expected = "dummy_dt_string Epoch 1/5, Step 2/3500, 325.7 Dummy_Images/sec\n"
         assert result == expected
 
     def test_with_loss(self, protocol_fixture):
         """Test where loss is specified"""
         # Arrange
+        mocked_dt_now_str = Mock()
+        mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
+
         epoch = 1
         step = 2
         total_steps = 3500
@@ -60,12 +91,13 @@ class TestProtocolMakeProgressPromptString:
         protocol_fixture.args.num_epochs = 5
 
         # Act
-        result = protocol_fixture.make_progress_prompt_string(
-            epoch, step, total_steps, loss=loss, it_per_sec=it_per_sec
-        )
+        with patch("utils.utils.dt_now_to_str", mocked_dt_now_str):
+            result = protocol_fixture.make_progress_prompt_string(
+                epoch, step, total_steps, loss=loss, it_per_sec=it_per_sec
+            )
 
         # Assert
-        expected = "Epoch [1 / 5], Step [2 / 3500], Loss: 6.8346,  Dummy_Images per second: 325.7\n"
+        expected = "dummy_dt_string Epoch 1/5, Step 2/3500, Loss: 6.8346, 325.7 Dummy_Images/sec\n"
         assert result == expected
         loss.detach.assert_called_once_with()
         detach.item.assert_called_once_with()
@@ -85,9 +117,8 @@ class TestProtocolMakeInfoText:
             "ignored\n"
         )
         mocked_check_output.configure_mock(return_value=model_mocked_value.encode())
-        mocked_datetime = Mock()
-        current_time_mocked_value = datetime(2025, 2, 19, 16, 55, 3, 708629)
-        mocked_datetime.now.configure_mock(return_value=current_time_mocked_value)
+        mocked_dt_now_str = Mock()
+        mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
 
         mocked_platform = Mock()
         mocked_uname = Mock()
@@ -121,7 +152,7 @@ class TestProtocolMakeInfoText:
         # Act
         with (
             patch("utils.utils.subprocess.check_output", mocked_check_output),
-            patch("utils.utils.datetime", mocked_datetime),
+            patch("utils.utils.dt_now_to_str", mocked_dt_now_str),
             patch("utils.utils.platform", mocked_platform)
         ):
             result = protocol_fixture.make_info_text()
@@ -154,7 +185,82 @@ Used data augmentation: True
 Checkpoint folder: /pytorch-benchmarks/model_checkpoints/dummy_1_NVIDIAGeForceGTX1650_resnet50_64_lr0001
 Number of workers: 7
 Warm up steps: 11
-Benchmark start : 2025/02/19 16:55:03
+Benchmark start : dummy_dt_string
 
 """
+        assert result == expected
+
+
+class TestProtocolFinishString:
+    """
+    Tests Protocol's class finish_string method.
+    """
+    def test_base(self, protocol_fixture):
+        """Basic test"""
+        # Arrange
+        mocked_dt_now_str = Mock()
+        mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
+
+        # Act
+        with patch("utils.utils.dt_now_to_str", mocked_dt_now_str):
+            result = protocol_fixture.finish_string()
+
+        # Assert
+        expected = "\n\n\nBenchmark end: dummy_dt_string\n"
+        assert result == expected
+
+    def test_with_mean_it_per_sec(self, protocol_fixture):
+        """Test when mean iteration per second argument is set"""
+        # Arrange
+        protocol_fixture.args.mean_it_per_sec = True
+        protocol_fixture.benchmark = Mock()
+        protocol_fixture.benchmark.make_final_mean_it_per_sec_string.configure_mock(return_value="dummy mean_it_per_sec string")
+        protocol_fixture.gpu_info = False
+
+        mocked_dt_now_str = Mock()
+        mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
+
+        # Act
+        with patch("utils.utils.dt_now_to_str", mocked_dt_now_str):
+            result = protocol_fixture.finish_string()
+
+        # Assert
+        expected = "dummy mean_it_per_sec string\n\nBenchmark end: dummy_dt_string\n"
+        assert result == expected
+
+    def test_with_gpu_info(self, protocol_fixture):
+        """Test when gpu_info is present"""
+        # Arrange
+        protocol_fixture.args.mean_it_per_sec = False
+        protocol_fixture.gpu_info = Mock()
+        protocol_fixture.gpu_info.get_max_temperature_str.configure_mock(return_value="dummy max_temperature string")
+
+        mocked_dt_now_str = Mock()
+        mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
+
+        # Act
+        with patch("utils.utils.dt_now_to_str", mocked_dt_now_str):
+            result = protocol_fixture.finish_string()
+
+        # Assert
+        expected = "dummy max_temperature string\n\nBenchmark end: dummy_dt_string\n"
+        assert result == expected
+
+    def test_with_all(self, protocol_fixture):
+        """Test when all the options that impact this string are specified"""
+        # Arrange
+        protocol_fixture.args.mean_it_per_sec = True
+        protocol_fixture.benchmark = Mock()
+        protocol_fixture.benchmark.make_final_mean_it_per_sec_string.configure_mock(return_value="dummy mean_it_per_sec string")
+        protocol_fixture.gpu_info = Mock()
+        protocol_fixture.gpu_info.get_max_temperature_str.configure_mock(return_value="dummy max_temperature string")
+        mocked_dt_now_str = Mock()
+        mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
+
+        # Act
+        with patch("utils.utils.dt_now_to_str", mocked_dt_now_str):
+            result = protocol_fixture.finish_string()
+
+        # Assert
+        expected = "dummy mean_it_per_sec stringdummy max_temperature string\n\nBenchmark end: dummy_dt_string\n"
         assert result == expected

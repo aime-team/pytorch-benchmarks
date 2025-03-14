@@ -132,6 +132,8 @@ class TestProtocolMakeInfoText:
         mocked_torch.version.cuda = "Mocked_Cuda-version"
         mocked_torch.backends.cudnn.version.configure_mock(return_value="Mocked_Cudnn-version")
         mocked_torch.__version__ = "Mocked_PyTorch-version"
+        mocked_sys_version = Mock()
+        mocked_sys_version.split.configure_mock(return_value=["Mocked_Python-version"])
 
         protocol_fixture.rank = 0
         protocol_fixture.args.model = "Dummy_Model"
@@ -161,6 +163,7 @@ class TestProtocolMakeInfoText:
             patch("utils.utils.dt_now_to_str", mocked_dt_now_str),
             patch("utils.utils.platform", mocked_platform),
             patch("utils.utils.torch", mocked_torch),
+            patch("utils.utils.sys.version", mocked_sys_version),
         ):
             result = protocol_fixture.make_info_text()
 
@@ -171,7 +174,7 @@ CPU used for benchmark: Faketel(R) Core(TM) i5-6500 CPU @ 3.20GHz
 Available GPUs on device: Mocked_Available GPUs
 Cuda-version: Mocked_Cuda-version
 Cudnn-version: Mocked_Cudnn-version
-Python-version: 3.12.3
+Python-version: Mocked_Python-version
 PyTorch-version: Mocked_PyTorch-version
 CPU: Faketel(R) Core(TM) i5-6500 CPU @ 3.20GHz
 Model: Dummy_Model

@@ -120,12 +120,18 @@ class TestProtocolMakeInfoText:
         mocked_dt_now_str = Mock()
         mocked_dt_now_str.configure_mock(return_value="dummy_dt_string")
 
-        mocked_platform = Mock()
         mocked_uname = Mock()
         mocked_uname.system = "Dummy_OS"
         mocked_uname.release = "Dummy_release"
         mocked_uname.node = "Dummy_device_name"
+        mocked_platform = Mock()
         mocked_platform.uname.configure_mock(return_value=mocked_uname)
+        mocked_torch = Mock()
+        mocked_torch.cuda.device_count.configure_mock(return_value="Mocked_Available GPUs")
+        mocked_torch.version = Mock()
+        mocked_torch.version.cuda = "Mocked_Cuda-version"
+        mocked_torch.backends.cudnn.version.configure_mock(return_value="Mocked_Cudnn-version")
+        mocked_torch.__version__ = "Mocked_PyTorch-version"
 
         protocol_fixture.rank = 0
         protocol_fixture.args.model = "Dummy_Model"
@@ -153,7 +159,8 @@ class TestProtocolMakeInfoText:
         with (
             patch("utils.utils.subprocess.check_output", mocked_check_output),
             patch("utils.utils.dt_now_to_str", mocked_dt_now_str),
-            patch("utils.utils.platform", mocked_platform)
+            patch("utils.utils.platform", mocked_platform),
+            patch("utils.utils.torch", mocked_torch),
         ):
             result = protocol_fixture.make_info_text()
 
@@ -161,11 +168,11 @@ class TestProtocolMakeInfoText:
         expected = """OS: Dummy_OS, Dummy_release
 Device-name: Dummy_device_name
 CPU used for benchmark: Faketel(R) Core(TM) i5-6500 CPU @ 3.20GHz
-Available GPUs on device: 1
-Cuda-version: 12.4
-Cudnn-version: 90100
+Available GPUs on device: Mocked_Available GPUs
+Cuda-version: Mocked_Cuda-version
+Cudnn-version: Mocked_Cudnn-version
 Python-version: 3.12.3
-PyTorch-version: 2.6.0+cu124
+PyTorch-version: Mocked_PyTorch-version
 CPU: Faketel(R) Core(TM) i5-6500 CPU @ 3.20GHz
 Model: Dummy_Model
 Global train batch size: 8
